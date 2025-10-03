@@ -4,6 +4,7 @@
 #include <Arduino.h>
 
 #define NUM_REGIONS 7
+#define ESPNOW_WIFI_CHANNEL 6
 
 typedef struct {
   uint8_t panelId;

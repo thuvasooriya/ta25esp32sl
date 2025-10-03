@@ -194,7 +194,7 @@ void setup() {
   Serial.print(PANEL_ID);
   Serial.println(" ===");
 
-  // Initialize WiFi in station mode for ESP-NOW
+  // Initialize WiFi in station mode
   WiFi.mode(WIFI_STA);
 
   // Print factory MAC for reference
@@ -203,7 +203,7 @@ void setup() {
 
   // Set custom MAC address based on PANEL_ID
   uint8_t customMAC[6] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x00};
-  customMAC[5] = PANEL_ID; // Panel 1 = 0x01, Panel 2 = 0x02, etc.
+  customMAC[5] = PANEL_ID;
 
   esp_err_t err = esp_wifi_set_mac(WIFI_IF_STA, customMAC);
   if (err == ESP_OK) {
@@ -212,9 +212,31 @@ void setup() {
     Serial.println("Failed to set custom MAC address");
   }
 
-  // Print new MAC
   Serial.print("Custom MAC: ");
   Serial.println(WiFi.macAddress());
+
+  // Disconnect from any WiFi
+  WiFi.disconnect();
+
+  // Set WiFi channel to match master
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_channel(ESPNOW_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_set_promiscuous(false);
+
+  // Verify channel was set correctly
+  int8_t actual_channel = WiFi.channel();
+  Serial.print("WiFi Channel set to: ");
+  Serial.println(actual_channel);
+
+  if (actual_channel != ESPNOW_WIFI_CHANNEL) {
+    Serial.println("ERROR: Failed to set WiFi channel!");
+    Serial.print("Expected: ");
+    Serial.print(ESPNOW_WIFI_CHANNEL);
+    Serial.print(", Got: ");
+    Serial.println(actual_channel);
+  } else {
+    Serial.println("✓ WiFi channel configured correctly");
+  }
 
   // Initialize ESP-NOW
   if (esp_now_init() != ESP_OK) {

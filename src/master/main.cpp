@@ -14,12 +14,8 @@ const char *password = "kskm2626";
 // MQTT Broker
 const char *mqtt_server = "broker.emqx.io";
 const int mqtt_port = 1883;
-// ta25esp32zero
-// const char *mqtt_user = "DLgKN6HcRLsIxeaSxu";
-// const char *mqtt_password = "jVYolNxovsbuMjPBzQ";
 
-// const char *command_topic = "ta25stage/panel1/command";
-const char *command_topic = "ta25stage/+/command"; // Subscribe to all panels
+const char *command_topic = "ta25stage/+/command"; // subscribe to all panels
 const char *global_topic = "ta25stage/command";
 const char *audio_topic = "ta25stage/audio";
 
@@ -68,6 +64,36 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 }
 
 void setup_espnow() {
+  // Get the WiFi channel the master is connected on
+  int8_t wifi_channel = WiFi.channel();
+  Serial.print("Master WiFi Channel: ");
+  Serial.println(wifi_channel);
+
+  // VALIDATION: Check if it matches the expected channel
+  if (wifi_channel != ESPNOW_WIFI_CHANNEL) {
+    Serial.println("===============================================");
+    Serial.println("WARNING: WiFi CHANNEL MISMATCH!");
+    Serial.print("Expected channel: ");
+    Serial.println(ESPNOW_WIFI_CHANNEL);
+    Serial.print("Actual channel: ");
+    Serial.println(wifi_channel);
+    Serial.println("ESP-NOW communication will FAIL!");
+    Serial.println("===============================================");
+    Serial.println("ACTION REQUIRED:");
+    Serial.println("1. Update ESPNOW_WIFI_CHANNEL in common.h to: " +
+                   String(wifi_channel));
+    Serial.println("2. Re-upload to all panel ESP32s");
+    Serial.println("OR");
+    Serial.println("3. Change your router to use channel " +
+                   String(ESPNOW_WIFI_CHANNEL));
+    Serial.println("===============================================");
+
+    // Optional: halt execution until fixed
+    // while(1) { delay(1000); }
+  } else {
+    Serial.println("✓ WiFi channel matches ESPNOW_WIFI_CHANNEL");
+  }
+
   // Initialize ESP-NOW
   if (esp_now_init() != ESP_OK) {
     Serial.println("Error initializing ESP-NOW");
@@ -79,31 +105,40 @@ void setup_espnow() {
 
   // Register all panel peers
   esp_now_peer_info_t peerInfo = {};
-  peerInfo.channel = 0;
+  peerInfo.channel = wifi_channel; // Use actual channel
   peerInfo.encrypt = false;
+  peerInfo.ifidx = WIFI_IF_STA;
 
   // Add Panel 1
   memcpy(peerInfo.peer_addr, panel1_mac, 6);
   if (esp_now_add_peer(&peerInfo) != ESP_OK) {
     Serial.println("Failed to add Panel 1");
+  } else {
+    Serial.println("Panel 1 added");
   }
 
   // Add Panel 2
   memcpy(peerInfo.peer_addr, panel2_mac, 6);
   if (esp_now_add_peer(&peerInfo) != ESP_OK) {
     Serial.println("Failed to add Panel 2");
+  } else {
+    Serial.println("Panel 2 added");
   }
 
   // Add Panel 3
   memcpy(peerInfo.peer_addr, panel3_mac, 6);
   if (esp_now_add_peer(&peerInfo) != ESP_OK) {
     Serial.println("Failed to add Panel 3");
+  } else {
+    Serial.println("Panel 3 added");
   }
 
   // Add Panel 4
   memcpy(peerInfo.peer_addr, panel4_mac, 6);
   if (esp_now_add_peer(&peerInfo) != ESP_OK) {
     Serial.println("Failed to add Panel 4");
+  } else {
+    Serial.println("Panel 4 added");
   }
 
   Serial.println("ESP-NOW initialized");
