@@ -1,149 +1,111 @@
 # LED Stage Control System
 
-A wireless LED control system for stage decoration, featuring centralized control via Android app and web interface, with synchronized LED patterns across multiple panels.
-
-## Features
-
-- 🎨 **Multiple Pattern Support**: Static, breathing, wave, pulse, and flicker effects
-- 📱 **Dual Control Interface**: Android app and web browser control
-- 🔄 **Synchronized Operation**: All panels update simultaneously via ESP-NOW
-- 🎛️ **Independent Region Control**: 7 LED regions per panel, individually controllable
-- 📶 **Remote Access**: Control from anywhere via MQTT
-- ⚡ **Low Latency**: <10ms command propagation to panels
+Wireless LED control system for stage decoration with centralized control via MQTT and ESP-NOW communication.
 
 ## System Components
 
-- **1 Master ESP32**: Connects to WiFi and MQTT, broadcasts commands via ESP-NOW
-- **4 Panel ESP32s**: Receive commands and control LED strips via PWM
-- **~28 LED Regions Total**: 7 regions × 4 panels
-- **MQTT Broker**: Message routing (currently using test.mosquitto.org)
+- **1 Master ESP32**: WiFi + MQTT → ESP-NOW broadcaster
+- **4 Panel ESP32s**: ESP-NOW receivers → PWM LED controllers
+- **28 LED Regions Total**: 7 regions per panel
 
-## Hardware Requirements
+## Quick Start
 
-### Per Panel
+### Prerequisites
 
-- 1× ESP32 DevKit board
-- 7× N-channel MOSFETs (IRLZ44N or similar)
-- 7× 10kΩ resistors (MOSFET pull-down)
-- Warm white LED strips (analog, non-addressable)
-- 5V or 12V power supply (rated for total LED current)
-- Jumper wires and breadboard/PCB
-
-### Master
-
-- 1× ESP32 DevKit board
-- USB power supply or 5V adapter
-
-### Tools
-
-- Computer with VSCode and PlatformIO
+- VSCode with [PlatformIO](https://platformio.org/)
+- [Just](https://github.com/casey/just) (optional)
+- ESP32 DevKit boards
 - USB cables for programming
-- Multimeter (for debugging)
 
-## Requirements
+### Configuration Required Before Upload
 
-- A Good Editor
-- [PlatformIO IDE extension](https://platformio.org/)
-- [Just command runner](https://github.com/casey/just) (optional, for build automation)
+⚠️ **You must configure these before uploading firmware:**
 
-## Installation
-
-### 1. Clone Repository
-
-```
-
-git clone <repository-url>
-cd led_stage_panel
-
-```
-
-### 2. Configure WiFi
+#### 1. WiFi Credentials (Master Only)
 
 Edit `src/master/main.cpp`:
 
-```
-
+```cpp
 const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
-
 ```
 
-### 3. Check WiFi Channel
+#### 2. WiFi Channel (Critical for ESP-NOW)
 
-The system requires all ESP32s to be on the same WiFi channel. Your router determines this channel.
-
-1. Upload master firmware first (step 4)
-2. Check serial monitor for: `Master WiFi Channel: X`
-3. Note the channel number
-
-### 4. Configure ESP-NOW Channel
-
-Edit `include/common.h`:
+**First**: Upload master firmware and check serial monitor for the WiFi channel:
 
 ```
-
-\#define ESPNOW_WIFI_CHANNEL 6  // Change to match your router's channel
-
+Master WiFi Channel: 11
 ```
 
-### 5. Build and Upload
+**Then**: Edit `include/common.h` to match that channel:
+
+```cpp
+#define ESPNOW_WIFI_CHANNEL 11  // Must match your router's channel
+```
+
+**Finally**: Upload to all 4 panels with the correct channel setting.
+
+> **Why this matters**: ESP-NOW only works when all devices are on the same WiFi channel. If the master connects to WiFi on channel 11, all panels must also be on channel 11.
+
+#### 3. Optional: GPIO Pin Mapping
+
+Default pin mapping in `src/panel/main.cpp`:
+
+```cpp
+const uint8_t regionPins[NUM_REGIONS] = {25, 26, 27, 14, 12, 13, 15};
+```
+
+Change these if your wiring differs.
+
+#### 4. Optional: MQTT Broker
+
+Default uses `test.mosquitto.org`. To use your own broker, edit `src/master/main.cpp`:
+
+```cpp
+const char* mqtt_server = "your.mqtt.broker.com";
+const int mqtt_port = 1883;
+```
+
+### Upload Firmware
 
 #### Using Just (Recommended)
 
-```
-
-
-# Upload master
-
+```bash
+# Master
 just up m
 
-# Upload panels
-
+# Panels (after configuring channel!)
 just up s1
 just up s2
 just up s3
 just up s4
-
 ```
 
 #### Using PlatformIO CLI
 
-```
-
-
-# Upload master
-
+```bash
 pio run -e master -t upload
-
-# Upload panel 1
-
 pio run -e panel1 -t upload
-
-# Upload panel 2
-
 pio run -e panel2 -t upload
-
-# ... and so on
-
+pio run -e panel3 -t upload
+pio run -e panel4 -t upload
 ```
 
-#### Using VSCode GUI
+#### Using PlatformIO GUI
 
 1. Open PlatformIO sidebar
 2. Select environment (e.g., `env:master`)
-3. Click "Upload" button
-4. Wait for upload to complete
-5. Repeat for each panel
+3. Click "Upload"
+4. Repeat for each panel
 
-### 6. Verify Operation
+### Verify Installation
 
 #### Master Serial Output
 
 ```
-
 === MASTER ESP32 ===
-WiFi connected.
-IP address: 192.168.X.X
+WiFi connected. IP: 192.168.X.X
 Master WiFi Channel: 6
 ✓ WiFi channel matches ESPNOW_WIFI_CHANNEL
 Panel 1 added
@@ -151,359 +113,134 @@ Panel 2 added
 Panel 3 added
 Panel 4 added
 ESP-NOW initialized
-Attempting MQTT connection...connected
-
+MQTT connected
 ```
+
+✅ **Success**: All panels added, WiFi channel matches
+
+❌ **Error**: "WiFi channel mismatch" → Update `ESPNOW_WIFI_CHANNEL` in `common.h`
 
 #### Panel Serial Output
 
 ```
-
 === PANEL 1 ===
 Custom MAC: AA:AA:AA:AA:AA:01
 WiFi Channel set to: 6
 ✓ WiFi channel configured correctly
 Ready to receive commands
-
 ```
 
-## Usage
+### Test the System
 
-### Testing with MQTT Client
+Use an MQTT client (MQTT Explorer, MQTT Dash) to send a test command:
 
-Install an MQTT client app (e.g., MQTT Explorer, MQTT Dash).
+**Broker**: `test.mosquitto.org:1883`  
+**Topic**: `stage/command`  
+**Payload**:
 
-**Connect to Broker:**
-
-- Host: `test.mosquitto.org`
-- Port: `1883`
-- No authentication required
-
-**Send Test Command:**
-
-Topic: `stage/command`
-
-Payload:
-
-```
-
+```json
 {
-"panelId": 0,
-"patternId": 0,
-"brightness": 200,
-"regions":
+  "panelId": 0,
+  "patternId": 0,
+  "brightness": 200,
+  "regions": [1, 2, 3, 4, 5, 6, 7]
 }
-
 ```
 
-**Expected Result:** All panels light up at ~80% brightness.
+**Expected**: All panels light up at ~80% brightness.
 
-### Command Reference
+## Available Patterns
 
-#### Pattern 0: All On (with brightness control)
+| Pattern ID | Name      | Description                  |
+| ---------- | --------- | ---------------------------- |
+| 0          | Static    | Solid brightness control     |
+| 1          | Breathing | Smooth fade in/out           |
+| 2          | Wave      | Sequential region activation |
+| 3          | Pulse     | Quick on/off pulses          |
+| 4          | Flicker   | Random brightness (candle)   |
 
-```
+## Command Parameters
 
-{
-"panelId": 0,
-"patternId": 0,
-"brightness": 128,
-"regions":
-}
+| Parameter       | Type  | Range | Description                 |
+| --------------- | ----- | ----- | --------------------------- |
+| `panelId`       | int   | 0-4   | 0=all, 1-4=specific panel   |
+| `patternId`     | int   | 0-4   | Pattern to display          |
+| `brightness`    | int   | 0-255 | Brightness (Pattern 0 only) |
+| `regions`       | array | [1-7] | Active regions              |
+| `speed`         | int   | 0-100 | Animation speed             |
+| `audioReactive` | bool  |       | Enable audio modulation     |
 
-```
+## Common Issues
 
-#### Pattern 1: Breathing Effect
+### WiFi Channel Mismatch
 
-```
+**Symptom**: Panels don't receive commands  
+**Solution**:
 
-{
-"panelId": 1,
-"patternId": 1,
-"regions": ,
-"speed": 50
-}
+1. Check master serial: `Master WiFi Channel: X`
+2. Update `ESPNOW_WIFI_CHANNEL` in `include/common.h`
+3. Re-upload to all panels
 
-```
+### LEDs Not Lighting
 
-#### Pattern 2: Wave Effect
+- [ ] Check common ground (ESP32 GND ↔ LED PSU GND)
+- [ ] Verify MOSFET wiring (gate, drain, source)
+- [ ] Confirm regions enabled in command
+- [ ] Test with max brightness: `"brightness": 255`
 
-```
+### MQTT Connection Failed
 
-{
-"panelId": 0,
-"patternId": 2,
-"regions": ,
-"speed": 70
-}
+- [ ] Verify WiFi credentials
+- [ ] Check internet connectivity
+- [ ] Try pinging `test.mosquitto.org`
 
-```
+### Upload Failed
 
-#### Pattern 3: Pulse
-
-```
-
-{
-"panelId": 2,
-"patternId": 3,
-"regions": ,
-"speed": 60
-}
-
-```
-
-#### Control Specific Panel
-
-```
-
-{
-"panelId": 3,
-"patternId": 1,
-"brightness": 255,
-"regions":
-}
-
-```
-
-### Command Parameters
-
-| Parameter       | Type  | Range      | Description                         |
-| --------------- | ----- | ---------- | ----------------------------------- |
-| `panelId`       | int   | 0-4        | 0=all panels, 1-4=specific panel    |
-| `patternId`     | int   | 0-4        | Pattern number to display           |
-| `brightness`    | int   | 0-255      | Brightness level (Pattern 0 only)   |
-| `regions`       | array | [1-7]      | Which regions to activate           |
-| `speed`         | int   | 0-100      | Pattern animation speed (0=slowest) |
-| `audioReactive` | bool  | true/false | Enable audio modulation             |
+- Hold BOOT button during upload
+- Check USB cable (must support data)
+- Try different USB port
+- Install CH340/CP210x drivers
 
 ## Build Commands (Just)
 
+```bash
+# Upload
+just up m        # Master
+just up s1       # Panel 1
+
+# Monitor serial
+just mon m       # Master
+just mon s1      # Panel 1
+
+# Upload + monitor
+just flash m     # Master
+just flash s2    # Panel 2
+
+# Build all
+just build all
+
+# Clean
+just clean-all
 ```
 
+## Documentation
 
-# Upload firmware
+- **[AGENTS.md](AGENTS.md)** - Firmware architecture and development guide
+- **[docs/hardware.md](docs/hardware.md)** - Wiring diagrams and specifications
+- **[docs/protocols.md](docs/protocols.md)** - MQTT and ESP-NOW communication details
+- **[docs/troubleshooting.md](docs/troubleshooting.md)** - Detailed debugging guide
 
-just up m         \# Master
-just up s1        \# Panel 1
-just up s2        \# Panel 2
-just up s3        \# Panel 3
-just up s4        \# Panel 4
+## Production Checklist
 
-# Monitor serial output
+For live events:
 
-just mon m        \# Master
-just mon s1       \# Panel 1
-
-# Upload and monitor
-
-just flash m      \# Upload master and open monitor
-just flash s2     \# Upload panel 2 and open monitor
-
-# Build without uploading
-
-just build m      \# Master
-just build s1     \# Panel 1
-just build all    \# All environments
-
-# Clean build files
-
-just clean        \# Clean current environment
-just clean-all    \# Clean all environments
-
-# List available commands
-
-just list
-
-```
-
-## Wiring Diagrams
-
-### MOSFET Connection (Per Region)
-
-```
-
-ESP32                           LED Strip            Power Supply
-
-GPIO Pin ──────┬─── Gate       ┌──────────┐
-│                │  LEDs    │
-[10kΩ]            (+)────────────────── +5V/+12V
-│                │          │
-GND               (-)────┐   │
-│   │
-Drain ─────────┘   │
-│
-MOSFET                  Source ────────────┴─── GND
-(IRLZ44N)
-│
-ESP32 GND ─────────────────────────────────┘
-(Common Ground)
-
-```
-
-### Panel Overview
-
-````
-
-     ESP32 DevKit
-    ┌──────────┐
-    │  GPIO 25 ├──→ MOSFET 1 → Region 1 LEDs
-    │  GPIO 26 ├──→ MOSFET 2 → Region 2 LEDs
-    │  GPIO 27 ├──→ MOSFET 3 → Region 3 LEDs
-    │  GPIO 14 ├──→ MOSFET 4 → Region 4 LEDs
-    │  GPIO 12 ├──→ MOSFET 5 → Region 5 LEDs
-    │  GPIO 13 ├──→ MOSFET 6 → Region 6 LEDs
-    │  GPIO 15 ├──→ MOSFET 7 → Region 7 LEDs
-    │          │
-    │   GND    ├──→ Common Ground (to PSU GND)
-    │   USB    ├──→ 5V Power (programming)
-    └──────────┘
-    ```
-
-## Troubleshooting
-
-### Master not connecting to MQTT
-- Check WiFi credentials
-- Verify internet connectivity
-- Try pinging test.mosquitto.org
-- Check serial monitor for error messages
-
-### Panels not receiving commands
-1. Check WiFi channel matches between master and panels
-2. Verify custom MAC addresses set correctly
-3. Ensure ESP-NOW initialized successfully
-4. Check physical distance (<50m recommended)
-
-### LEDs not lighting up
-1. Verify common ground connection
-2. Test MOSFET with multimeter (gate voltage should be 3.3V when on)
-3. Check LED strip power supply voltage
-4. Confirm regions are enabled in command (`"regions": [1,2,3...]`)
-5. Try maximum brightness: `"brightness": 255`
-
-### WiFi Channel Mismatch Error
-````
-
-WARNING: WiFi CHANNEL MISMATCH!
-Expected channel: 6
-Actual channel: 11
-
-```
-
-**Solution:**
-1. Note the "Actual channel" number from master serial output
-2. Edit `include/common.h`:
-```
-
-\#define ESPNOW_WIFI_CHANNEL 11 // Use actual channel
-
-```
-3. Rebuild and re-upload to all panels:
-```
-
-just up s1 \&\& just up s2 \&\& just up s3 \&\& just up s4
-
-```
-
-### Flashing/Uploading Issues
-- Press and hold BOOT button on ESP32 while uploading
-- Check USB cable (must support data, not just power)
-- Try different USB port
-- Install/update USB-to-UART drivers (CP210x or CH340)
-
-## Development
-
-### Adding New Patterns
-
-1. Open `src/panel/main.cpp`
-2. Add your pattern function:
-```
-
-void pattern_myEffect() {
-static unsigned long lastUpdate = 0;
-
-     if (millis() - lastUpdate >= 50) {
-       lastUpdate = millis();
-
-       for (int r = 0; r < NUM_REGIONS; r++) {
-         if (currentState.regions[r]) {
-           uint8_t brightness = /* your logic */;
-           setRegionBrightness(r, brightness);
-         }
-       }
-     }
-    }
-
-```
-
-3. Add to pattern switch:
-```
-
-void executePattern() {
-switch(currentState.patternId) {
-// ... existing patterns
-case 5:
-pattern_myEffect();
-break;
-}
-}
-
-```
-
-4. Rebuild and upload to all panels
-
-### Monitoring Multiple Panels
-
-Open multiple terminal windows:
-
-```
-
-# Terminal 1
-
-just mon m
-
-# Terminal 2
-
-just mon s1
-
-# Terminal 3
-
-just mon s2
-
-# ... and so on
-
-```
-
-Or use screen/tmux for split-pane monitoring.
-
-## Production Deployment
-
-For live events, consider these improvements:
-
-1. **Local MQTT Broker**: Deploy Mosquitto on local server instead of test.mosquitto.org
-2. **Static IPs**: Assign static IPs to master ESP32
-3. **Backup Master**: Keep spare programmed ESP32 ready
-4. **Power Management**: Use UPS for master and router
-5. **Cable Management**: Secure all connections with strain relief
-6. **Test Run**: Full system test at venue before event
-7. **Emergency Stop**: Physical switch to cut all LED power
-
-## Support
-
-For technical issues or questions:
-1. Check serial monitor output for error messages
-2. Review AGENTS.md for detailed technical information
-3. Verify hardware connections match wiring diagrams
-4. Ensure all firmware versions are up-to-date
+- [ ] Use local MQTT broker (not test.mosquitto.org)
+- [ ] Assign static IP to master
+- [ ] Test full system at venue before event
+- [ ] Keep backup ESP32s programmed and ready
+- [ ] Use UPS for master and router
+- [ ] Implement emergency stop switch
 
 ## License
 
-[Your License Here]
-
-## Credits
-
-Built with:
-- [ESP32 Arduino Core](https://github.com/espressif/arduino-esp32)
-- [PlatformIO](https://platformio.org/)
-- [PubSubClient](https://github.com/knolleary/pubsubclient)
-- [ArduinoJson](https://arduinojson.org/)
-```
+MIT

@@ -1,426 +1,525 @@
-# LED Stage Control System - Technical Documentation
+# LED Stage Control - Firmware Development Guide
 
-## System Overview
+Technical documentation for AI coding agents and developers working on the ESP32 firmware.
 
-This is a distributed LED stage decoration control system for live events, consisting of 5 ESP32 microcontrollers:
-
-- **1 Master Controller**: Receives MQTT commands from app/web interfaces and broadcasts to panels via ESP-NOW
-- **4 Panel Controllers**: Receive ESP-NOW commands and control warm white LED strips through PWM-driven MOSFETs
-
-## Architecture
+## Project Structure
 
 ```
-
-┌─────────────────────────────────────────────────────────────────┐
-│                     Control Layer                               │
-│  ┌──────────────────┐              ┌──────────────────┐         │
-│  │   Android App    │              │  Web Interface   │         │
-│  └────────┬─────────┘              └────────┬─────────┘         │
-│           │                                 │                   │
-│           └──────────────┬──────────────────┘                   │
-│                          │ MQTT                                 │
-└──────────────────────────┼──────────────────────────────────────┘
-                           │
-                  ┌────────▼────────┐
-                  │  MQTT Broker    │
-                  └────────┬────────┘
-                           │ MQTT Subscribe
-┌──────────────────────────┼───────────────────────────────────────┐
-│                          │      Master Layer                     │
-│                  ┌───────▼───────┐                               │
-│                  │ Master ESP32  │                               │
-│                  │ (MQTT + WiFi) │                               │
-│                  └───────┬───────┘                               │
-│                          │ ESP-NOW Broadcast                     │
-└──────────────────────────┼───────────────────────────────────────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-┌───────▼───────┐   ┌──────▼──────┐   ┌───────▼───────┐
-│  Panel 1 ESP  │   │ Panel 2 ESP │   │  Panel 3 ESP  │ ...
-│   (ESP-NOW)   │   │  (ESP-NOW)  │   │   (ESP-NOW)   │
-└───────┬───────┘   └──────┬──────┘   └───────┬───────┘
-        │                  │                  │
-┌───────▼───────┐   ┌──────▼──────┐   ┌───────▼───────┐
-│  7 LED        │   │ 7 LED       │   │  7 LED        │
-│  Regions      │   │ Regions     │   │  Regions      │
-│  (PWM Control)│   │(PWM Control)│   │ (PWM Control) │
-└───────────────┘   └─────────────┘   └───────────────┘
-
-```
-
-## Communication Protocols
-
-### MQTT Topics
-
-| Topic                  | Direction    | Purpose                      | Payload         |
-| ---------------------- | ------------ | ---------------------------- | --------------- |
-| `stage/command`        | App → Master | Global commands (all panels) | JSON command    |
-| `stage/panel1/command` | App → Master | Panel 1 specific             | JSON command    |
-| `stage/panel2/command` | App → Master | Panel 2 specific             | JSON command    |
-| `stage/panel3/command` | App → Master | Panel 3 specific             | JSON command    |
-| `stage/panel4/command` | App → Master | Panel 4 specific             | JSON command    |
-| `stage/audio`          | App → Master | Audio intensity data         | JSON audio data |
-| `stage/status`         | Master → App | System status updates        | JSON status     |
-
-### MQTT Command Format
-
-```
-
-{
-"panelId": 0,              // 0 = all panels, 1-4 = specific panel
-"patternId": 2,            // Pattern ID (0-N)
-"brightness": 200,         // 0-255
-"regions": , // Active regions (1-7)
-"speed": 50,               // Pattern speed (0-100)
-"audioReactive": false     // Enable audio reactivity
-}
-
-```
-
-### ESP-NOW Communication
-
-**Message Structure** (`LEDCommand` struct):
-
-```
-
-typedef struct {
-uint8_t panelId;              // 0 = broadcast, 1-4 = specific
-uint8_t patternId;            // Pattern ID
-uint8_t brightness;           // 0-255
-bool regions[NUM_REGIONS];    // Region enable flags
-uint8_t speed;                // 0-100
-bool audioReactive;           // Audio reactive flag
-uint8_t audioIntensity;       // Audio level (0-255)
-} LEDCommand;
-
-```
-
-**Custom MAC Addresses:**
-
-- Master: Factory MAC (varies per device)
-- Panel 1: `AA:AA:AA:AA:AA:01`
-- Panel 2: `AA:AA:AA:AA:AA:02`
-- Panel 3: `AA:AA:AA:AA:AA:03`
-- Panel 4: `AA:AA:AA:AA:AA:04`
-
-## Hardware Configuration
-
-### Master ESP32
-
-- **WiFi**: Connected to network in STA+AP mode
-- **MQTT**: Subscribes to command topics
-- **ESP-NOW**: Broadcasts to panel MAC addresses
-- **Power**: USB or 5V supply
-- **No LEDs connected**
-
-### Panel ESP32 (each)
-
-- **WiFi**: Station mode, not connected (ESP-NOW only)
-- **WiFi Channel**: Set to match master (default: 6)
-- **ESP-NOW**: Receives commands from master
-- **GPIO Pins**: 7 PWM outputs for LED regions
-- **Power**: 5V supply (shared ground with LED power)
-
-**Default Pin Mapping:**
-
-```
-
-Region 1 → GPIO 25
-Region 2 → GPIO 26
-Region 3 → GPIO 27
-Region 4 → GPIO 14
-Region 5 → GPIO 12
-Region 6 → GPIO 13
-Region 7 → GPIO 15
-
-```
-
-### LED Hardware
-
-**Per Region:**
-
-- Warm white LED strip (analog, non-addressable)
-- N-channel MOSFET (IRLZ44N or similar)
-- 10kΩ pull-down resistor (gate to ground)
-- Separate 5V/12V power supply
-
-**Wiring:**
-
-```
-
-ESP32 GPIO → MOSFET Gate (+ 10kΩ to GND)
-MOSFET Drain → LED Strip (-)
-MOSFET Source → Power Supply GND
-LED Strip (+) → Power Supply (+5V or +12V)
-ESP32 GND → Power Supply GND (common ground required)
-
-```
-
-## Software Architecture
-
-### Project Structure
-
-```
-
-led_stage_panel/
-├── platformio.ini          \# Build configurations
+ta25/
+├── platformio.ini          # Build configurations (5 environments)
 ├── include/
-│   └── common.h            \# Shared definitions and structs
+│   └── common.h            # Shared structs, constants, MAC addresses
 ├── src/
 │   ├── master/
-│   │   └── main.cpp        \# Master controller code
+│   │   └── main.cpp        # Master: MQTT subscriber + ESP-NOW sender
 │   └── panel/
-│       └── main.cpp        \# Panel controller code
-├── justfile                \# Build commands
-├── AGENTS.md               \# This file
-└── README.md               \# User guide
-
+│       └── main.cpp        # Panel: ESP-NOW receiver + PWM controller
+├── justfile                # Build automation shortcuts
+└── docs/                   # Hardware specs and protocols
 ```
 
-### Build System
+## Build System
 
-**PlatformIO Environments:**
+### PlatformIO Environments
 
-- `master` - Master controller
-- `panel1` - Panel 1 (PANEL_ID=1)
-- `panel2` - Panel 2 (PANEL_ID=2)
-- `panel3` - Panel 3 (PANEL_ID=3)
-- `panel4` - Panel 4 (PANEL_ID=4)
+| Environment | Description                | Build Flag      |
+|-------------|----------------------------|-----------------|
+| `master`    | Master controller          | None            |
+| `panel1`    | Panel 1                    | `PANEL_ID=1`    |
+| `panel2`    | Panel 2                    | `PANEL_ID=2`    |
+| `panel3`    | Panel 3                    | `PANEL_ID=3`    |
+| `panel4`    | Panel 4                    | `PANEL_ID=4`    |
 
-**Build Flags:**
+### Build Flags
 
-- Panels use `-D PANEL_ID=X` to differentiate
-- `MQTT_MAX_PACKET_SIZE=1024` for larger JSON payloads
+- **Panels**: `-D PANEL_ID=X` differentiates panel identity at compile time
+- **MQTT**: `MQTT_MAX_PACKET_SIZE=1024` for JSON payloads
+- **PWM**: 5kHz frequency (flicker-free), 8-bit resolution
 
-### Pattern System
+### Dependencies (from platformio.ini)
 
-**Pattern 0: All On**
+- `knolleary/PubSubClient` - MQTT client
+- `bblanchon/ArduinoJson` - JSON parsing
+- `espressif/arduino-esp32` - ESP32 Arduino core
 
-- Static brightness control
+## Firmware Architecture
+
+### Master Controller (`src/master/main.cpp`)
+
+**Responsibilities:**
+1. Connect to WiFi network
+2. Subscribe to MQTT topics (`stage/command`, `stage/panel[1-4]/command`, `stage/audio`)
+3. Parse JSON commands
+4. Broadcast to panels via ESP-NOW
+
+**Key Functions:**
+
+```cpp
+void setup_wifi()          // WiFi STA mode connection
+void mqtt_callback()       // MQTT message handler
+void espnow_send_cb()      // ESP-NOW send status callback
+void reconnect()           // MQTT reconnection logic
+void loop()                // MQTT loop + reconnect
+```
+
+**ESP-NOW Setup:**
+- Uses factory MAC address
+- Registers 4 panel peers (custom MAC addresses)
+- Broadcasts to all panels or specific panel based on `panelId`
+
+**WiFi Channel Validation:**
+- Checks if router's WiFi channel matches `ESPNOW_WIFI_CHANNEL`
+- Warns on mismatch (ESP-NOW won't work across channels)
+
+### Panel Controller (`src/panel/main.cpp`)
+
+**Responsibilities:**
+1. Set custom MAC address (`AA:AA:AA:AA:AA:0X`)
+2. Initialize WiFi in STA mode (no AP connection)
+3. Set WiFi channel to match master
+4. Receive ESP-NOW commands
+5. Execute LED patterns via PWM
+
+**Key Functions:**
+
+```cpp
+void OnDataRecv()                 // ESP-NOW receive callback
+void setRegionBrightness()        // PWM control for one region
+void executePattern()             // Pattern dispatcher (switch statement)
+void pattern_allOn()              // Pattern 0: Static
+void pattern_breathing()          // Pattern 1: Breathing
+void pattern_wave()               // Pattern 2: Wave/Chase
+void pattern_pulse()              // Pattern 3: Pulse
+void pattern_flicker()            // Pattern 4: Flicker
+void loop()                       // Continuous pattern execution
+```
+
+**Custom MAC Address:**
+- Set via `esp_wifi_set_mac(WIFI_IF_STA, panelX_mac)`
+- Allows master to address specific panels
+- Must be set before WiFi init
+
+**GPIO Pin Mapping:**
+
+```cpp
+const uint8_t regionPins[NUM_REGIONS] = {25, 26, 27, 14, 12, 13, 15};
+// Region 1-7 → GPIO 25, 26, 27, 14, 12, 13, 15
+```
+
+**PWM Setup:**
+- 5000 Hz frequency
+- 8-bit resolution (0-255)
+- Each region gets dedicated PWM channel (0-6)
+
+## Communication Flow
+
+### MQTT → ESP-NOW Flow
+
+1. **App/Web** publishes JSON to `stage/command` (MQTT)
+2. **Master** receives via `mqtt_callback()`
+3. **Master** parses JSON into `LEDCommand` struct
+4. **Master** broadcasts struct via ESP-NOW to panels
+5. **Panels** receive in `OnDataRecv()`
+6. **Panels** validate `panelId` (0 = all, or matches own ID)
+7. **Panels** update `currentState` and execute pattern
+
+### LEDCommand Struct
+
+```cpp
+typedef struct {
+  uint8_t panelId;              // 0 = broadcast, 1-4 = specific
+  uint8_t patternId;            // 0-4 (pattern function index)
+  uint8_t brightness;           // 0-255 (used in Pattern 0)
+  bool regions[NUM_REGIONS];    // 7 booleans (region enable flags)
+  uint8_t speed;                // 0-100 (mapped to timing intervals)
+  bool audioReactive;           // Future: audio modulation flag
+  uint8_t audioIntensity;       // Future: audio level 0-255
+} LEDCommand;
+```
+
+**Size**: ~18 bytes (fits well in ESP-NOW 250-byte limit)
+
+### ESP-NOW Configuration
+
+**Custom MAC Addresses** (defined in `include/common.h`):
+
+```cpp
+uint8_t panel1_mac[] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x01};
+uint8_t panel2_mac[] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x02};
+uint8_t panel3_mac[] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x03};
+uint8_t panel4_mac[] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x04};
+uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+```
+
+**Critical**: All devices must be on the same WiFi channel:
+
+```cpp
+#define ESPNOW_WIFI_CHANNEL 6  // Must match router's channel
+```
+
+**Master**: WiFi channel determined by router connection  
+**Panels**: Explicitly set via `esp_wifi_set_channel()`
+
+## Pattern System
+
+### Pattern Execution Loop
+
+```cpp
+void loop() {
+  executePattern();  // Called continuously (no delay)
+}
+
+void executePattern() {
+  switch(currentState.patternId) {
+    case 0: pattern_allOn(); break;
+    case 1: pattern_breathing(); break;
+    case 2: pattern_wave(); break;
+    case 3: pattern_pulse(); break;
+    case 4: pattern_flicker(); break;
+  }
+}
+```
+
+### Pattern Implementation Guidelines
+
+All patterns follow this structure:
+
+```cpp
+void pattern_example() {
+  static unsigned long lastUpdate = 0;
+  unsigned long currentMillis = millis();
+  
+  // Map speed (0-100) to update interval (fast to slow)
+  uint16_t interval = map(currentState.speed, 0, 100, MIN_DELAY, MAX_DELAY);
+  
+  if (currentMillis - lastUpdate >= interval) {
+    lastUpdate = currentMillis;
+    
+    // Update logic here
+    for (int r = 0; r < NUM_REGIONS; r++) {
+      if (currentState.regions[r]) {
+        uint8_t brightness = /* calculate brightness */;
+        setRegionBrightness(r, brightness);
+      }
+    }
+  }
+}
+```
+
+**Key Points:**
+- Use `static` variables to maintain state between calls
+- Non-blocking (no `delay()`)
+- Check enabled regions before updating
+- Use `map()` to scale `speed` parameter to timing
+
+### Existing Patterns
+
+#### Pattern 0: All On (Static)
+
+- Uses `currentState.brightness` directly
+- No animation, just PWM write
 - All enabled regions at same brightness
-- User-adjustable via brightness parameter
 
-**Pattern 1: Breathing**
+#### Pattern 1: Breathing
 
-- Smooth fade in/out effect
-- Speed controlled by speed parameter
-- All enabled regions synchronized
+- Sine wave brightness modulation
+- Speed controls frequency
+- Synchronized across all regions
 
-**Pattern 2: Wave/Chase**
+#### Pattern 2: Wave/Chase
 
-- Sequential region activation
 - One region lit at a time
-- Speed controlled by speed parameter
+- Cycles through enabled regions sequentially
+- Speed controls transition rate
 
-**Pattern 3: Pulse**
+#### Pattern 3: Pulse
 
-- Quick on/off pulse effect
-- Can be audio-reactive
-- All enabled regions synchronized
+- Quick on/off toggle
+- Can be audio-reactive (future)
+- All regions synchronized
 
-**Pattern 4: Flicker**
+#### Pattern 4: Flicker
 
-- Random brightness variations
+- Random brightness per region
 - Simulates candle/fire effect
-- Speed controls update rate
+- Speed controls update frequency
 
 ### Adding New Patterns
 
-1. Add pattern function to `src/panel/main.cpp`:
+1. **Define pattern function** in `src/panel/main.cpp`:
 
-```
-
-void pattern_newEffect() {
-static unsigned long lastUpdate = 0;
-unsigned long currentMillis = millis();
-uint16_t updateInterval = map(currentState.speed, 0, 100, 500, 50);
-
-if (currentMillis - lastUpdate >= updateInterval) {
-lastUpdate = currentMillis;
-
-    // Your pattern logic here
+```cpp
+void pattern_myNewEffect() {
+  static unsigned long lastUpdate = 0;
+  static uint8_t step = 0;
+  
+  uint16_t interval = map(currentState.speed, 0, 100, 500, 50);
+  
+  if (millis() - lastUpdate >= interval) {
+    lastUpdate = millis();
+    
     for (int r = 0; r < NUM_REGIONS; r++) {
       if (currentState.regions[r]) {
-        // Set brightness for this region
-        setRegionBrightness(r, yourBrightnessValue);
+        uint8_t brightness = /* your logic */;
+        setRegionBrightness(r, brightness);
       }
     }
-    }
+    
+    step++;
+  }
 }
-
 ```
 
-2. Add to switch statement in `executePattern()`:
+2. **Add to switch** in `executePattern()`:
 
-```
-
+```cpp
 case 5:
-pattern_newEffect();
-break;
-
+  pattern_myNewEffect();
+  break;
 ```
+
+3. **Upload to all panels**
+
+## Development Workflow
+
+### Testing Changes
+
+1. **Upload to one panel first**: `just up s1`
+2. **Monitor serial output**: `just mon s1`
+3. **Send test MQTT command** via MQTT client
+4. **Verify pattern behavior**
+5. **Upload to remaining panels**: `just up s2 && just up s3 && just up s4`
+
+### Debugging Techniques
+
+#### Master Debugging
+
+Enable verbose ESP-NOW status:
+
+```cpp
+void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  Serial.printf("Send to %02X:%02X:%02X:%02X:%02X:%02X - %s\n",
+    mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5],
+    status == ESP_NOW_SEND_SUCCESS ? "Success" : "Fail");
+}
+```
+
+#### Panel Debugging
+
+Print received commands:
+
+```cpp
+void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
+  Serial.printf("Received from %02X:%02X:..., Panel ID: %d, Pattern: %d\n",
+    mac[0], mac[1], cmd.panelId, cmd.patternId);
+}
+```
+
+#### Monitor Multiple Panels
+
+Use `tmux` or multiple terminals:
+
+```bash
+# Terminal 1
+just mon m
+
+# Terminal 2
+just mon s1
+
+# Terminal 3
+just mon s2
+```
+
+### Performance Monitoring
+
+**Pattern Update Rate**: Measure in each pattern function:
+
+```cpp
+static unsigned long frameCount = 0;
+static unsigned long lastReport = 0;
+
+if (millis() - lastReport >= 1000) {
+  Serial.printf("FPS: %lu\n", frameCount);
+  frameCount = 0;
+  lastReport = millis();
+}
+frameCount++;
+```
+
+**ESP-NOW Latency**: Timestamp in master send callback and panel receive callback.
 
 ## WiFi Channel Management
 
-**Critical Requirement**: Master and all panels must be on the same WiFi channel for ESP-NOW to work.
+### Why It Matters
 
-**Configuration**: Set `ESPNOW_WIFI_CHANNEL` in `include/common.h` to match your router's channel.
+ESP-NOW uses WiFi radio at the data link layer. Both sender and receiver must be on the same channel to communicate.
 
-**Validation**:
+**Master**: Channel determined by router (can't be controlled)  
+**Panels**: Must explicitly match master's channel
 
-- Master checks on startup and warns if mismatch detected
-- Panels set their channel explicitly using `esp_wifi_set_channel()`
+### Channel Configuration Flow
 
-**If Channel Changes:**
+1. **Master connects to WiFi** → Router assigns channel (e.g., 11)
+2. **Master reads channel**: `wifi_second_chan_t second; esp_wifi_get_channel(&primaryChan, &second);`
+3. **Master prints**: `Master WiFi Channel: 11`
+4. **Developer updates** `include/common.h`: `#define ESPNOW_WIFI_CHANNEL 11`
+5. **Panels set channel**: `esp_wifi_set_channel(ESPNOW_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);`
 
-1. Check master serial output for actual WiFi channel
-2. Update `ESPNOW_WIFI_CHANNEL` in `include/common.h`
-3. Rebuild and re-upload to all panels
+### Validation Logic
 
-## Debugging
+**Master** (warns on mismatch):
 
-### Master Debugging
-
-**Expected Serial Output:**
-
+```cpp
+if (primaryChan != ESPNOW_WIFI_CHANNEL) {
+  Serial.println("WARNING: WiFi CHANNEL MISMATCH!");
+  Serial.printf("Expected: %d, Actual: %d\n", ESPNOW_WIFI_CHANNEL, primaryChan);
+}
 ```
 
-=== MASTER ESP32 ===
-Connecting to YOUR_WIFI_SSID
-WiFi connected.
-IP address: 192.168.X.X
-MAC address: XX:XX:XX:XX:XX:XX
-Master WiFi Channel: 6
-✓ WiFi channel matches ESPNOW_WIFI_CHANNEL
-Panel 1 added
-Panel 2 added
-Panel 3 added
-Panel 4 added
-ESP-NOW initialized
-Attempting MQTT connection...connected
+**Panel** (confirms setting):
 
+```cpp
+esp_err_t err = esp_wifi_set_channel(ESPNOW_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+if (err == ESP_OK) {
+  Serial.printf("✓ WiFi channel set to: %d\n", ESPNOW_WIFI_CHANNEL);
+}
 ```
 
-**Common Issues:**
+## Code Conventions
 
-- "WiFi channel mismatch" → Update `ESPNOW_WIFI_CHANNEL` in `common.h`
-- "Failed to add Panel X" → Check MAC address definitions in `common.h`
-- "MQTT connection failed" → Check broker address and network connectivity
+### Naming
 
-### Panel Debugging
+- **Global variables**: `camelCase` (e.g., `currentState`, `regionPins`)
+- **Functions**: `camelCase` (e.g., `setRegionBrightness()`)
+- **Constants**: `UPPER_SNAKE_CASE` (e.g., `NUM_REGIONS`, `ESPNOW_WIFI_CHANNEL`)
+- **Structs**: `PascalCase` (e.g., `LEDCommand`)
 
-**Expected Serial Output:**
+### Serial Output
 
+- **Info**: `Serial.println("info message")`
+- **Success**: `Serial.println("✓ Success message")`
+- **Warning**: `Serial.println("⚠ Warning message")`
+- **Error**: `Serial.println("✗ Error message")`
+
+### Memory Management
+
+- **Static buffers**: Use fixed-size arrays (no dynamic allocation)
+- **String handling**: Prefer `const char*` over `String` objects
+- **JSON parsing**: Use `StaticJsonDocument` with appropriate size
+
+## Common Modifications
+
+### Change GPIO Pins
+
+Edit `src/panel/main.cpp`:
+
+```cpp
+const uint8_t regionPins[NUM_REGIONS] = {25, 26, 27, 14, 12, 13, 15};
 ```
 
-=== PANEL 1 ===
-Factory MAC: XX:XX:XX:XX:XX:XX
-Custom MAC address set successfully
-Custom MAC: AA:AA:AA:AA:AA:01
-WiFi Channel set to: 6
-✓ WiFi channel configured correctly
-Ready to receive commands
+### Add More Regions
 
+1. Update `include/common.h`: `#define NUM_REGIONS 10`
+2. Add pins in `src/panel/main.cpp`: `{25, 26, 27, 14, 12, 13, 15, 32, 33, 34}`
+3. Update `LEDCommand` struct handling
+
+### Change PWM Frequency
+
+Edit `src/panel/main.cpp` in `setup()`:
+
+```cpp
+ledcSetup(i, 5000, 8);  // 5000 Hz → change to desired frequency
 ```
 
-**When Command Received:**
+### Add More Panels
 
+1. Define MAC in `include/common.h`: `uint8_t panel5_mac[] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x05};`
+2. Add environment in `platformio.ini`:
+   ```ini
+   [env:panel5]
+   build_flags = ${common.build_flags} -D PANEL_ID=5
+   ```
+3. Register peer in master `setup()`: `esp_now_add_peer(&panel5);`
+4. Update `justfile` aliases
+
+### Modify MQTT Topics
+
+Edit `src/master/main.cpp`:
+
+```cpp
+client.subscribe("stage/command");
+client.subscribe("stage/panel1/command");
+// Add more topics
 ```
 
-Received from: XX:XX:XX:XX:XX:XX
-Command accepted - Pattern: 2 Brightness: 200
+## Testing Without Hardware
 
+### Master (MQTT Only)
+
+Comment out ESP-NOW send in `mqtt_callback()`:
+
+```cpp
+// esp_now_send(broadcastAddress, (uint8_t *)&ledCmd, sizeof(ledCmd));
+Serial.println("Would send ESP-NOW command");
 ```
 
-**Common Issues:**
+### Panel (ESP-NOW Simulator)
 
-- "Failed to set WiFi channel" → Check ESP-NOW channel configuration
-- No "Received from" messages → WiFi channel mismatch with master
-- "Command ignored" → PanelId in command doesn't match this panel
+Create fake commands in `setup()`:
 
-### ESP-NOW Status Codes
+```cpp
+LEDCommand testCmd = {0, 1, 255, {true, true, true, true, true, true, true}, 50, false, 0};
+memcpy(&currentState, &testCmd, sizeof(LEDCommand));
+```
 
-**Master Send Callback:**
+### PWM Verification (Without LEDs)
 
-- `Success` - Panel received the packet
-- `Fail` - Panel did not receive (channel mismatch, out of range, or panel offline)
+Measure GPIO with multimeter:
+- 0% duty → 0V
+- 50% duty → ~1.65V average
+- 100% duty → 3.3V
 
 ## Performance Characteristics
 
-- **MQTT Latency**: 50-200ms (depends on network)
+- **MQTT Latency**: 50-200ms (network dependent)
 - **ESP-NOW Latency**: <10ms (master to panel)
-- **Pattern Update Rate**: 10-100 Hz (depends on pattern)
-- **PWM Frequency**: 5kHz (flicker-free for human vision)
-- **WiFi Range**: ~50m indoor (typical for 2.4GHz)
-- **ESP-NOW Range**: ~200m line-of-sight (same as WiFi)
+- **Pattern Update Rate**: 10-100 Hz (pattern dependent)
+- **PWM Frequency**: 5 kHz (flicker-free)
+- **WiFi Range**: ~50m indoor
+- **ESP-NOW Range**: ~200m line-of-sight
 
-## Power Requirements
+## Security Notes
 
-**Per Panel (worst case):**
-
-- ESP32: ~250mA @ 5V
-- 7 Regions at full brightness: depends on LED strip current
-- Total: Calculate based on actual LED strip specifications
-
-**Example Calculation:**
-
-- If each region has 50 warm white LEDs @ 20mA each = 1A per region
-- 7 regions × 1A = 7A per panel
-- ESP32 = 0.25A
-- **Total per panel: ~7.5A @ 5V or 12V** (depending on LED voltage)
-
-**Safety Margins:**
-
-- Use power supplies rated 20% higher than calculated
-- Ensure common ground between all power supplies and ESP32s
-
-## Security Considerations
-
-**Current Setup (Development):**
-
-- Using public MQTT broker (test.mosquitto.org)
-- No encryption on ESP-NOW
+**Current Implementation** (development):
+- Public MQTT broker (test.mosquitto.org)
+- No ESP-NOW encryption
 - No authentication
 
-**Production Recommendations:**
+**Production Recommendations**:
+- Local Mosquitto broker with TLS
+- ESP-NOW encryption (shared key)
+- MQTT authentication (username/password)
+- VPN for remote access
 
-1. Deploy local Mosquitto broker with authentication
-2. Use MQTT over TLS (port 8883)
-3. Enable ESP-NOW encryption with shared key
-4. Implement access control for MQTT topics
-5. Consider VPN for remote access
+## Future Development
 
-## Troubleshooting Checklist
-
-**No communication between master and panels:**
-
-- [ ] Check WiFi channel matches (`ESPNOW_WIFI_CHANNEL`)
-- [ ] Verify custom MAC addresses set correctly
-- [ ] Confirm panels are powered on
-- [ ] Check ESP-NOW initialization succeeded on both sides
-
-**LEDs not responding:**
-
-- [ ] Verify MOSFET wiring (gate, drain, source)
-- [ ] Check common ground between ESP32 and LED power supply
-- [ ] Test PWM output with multimeter or LED
-- [ ] Verify region enabled in command (`regions` array)
-
-**MQTT connection issues:**
-
-- [ ] Check WiFi credentials
-- [ ] Verify MQTT broker address reachable
-- [ ] Confirm MQTT port (1883 for plain, 8883 for TLS)
-- [ ] Check firewall settings
-
-## Future Enhancements
-
-- [ ] Audio input via I2S microphone for real-time audio reactivity
+### Planned Features
+- [ ] Audio reactivity via I2S microphone
+- [ ] OTA firmware updates
+- [ ] Pattern presets stored in SPIFFS
 - [ ] Web-based pattern designer
-- [ ] Save/recall pattern presets
-- [ ] Synchronized patterns across multiple masters
-- [ ] OTA (Over-The-Air) firmware updates
-- [ ] Local MQTT broker setup automation
-- [ ] Mobile app with native UI
-- [ ] DMX512 protocol support for professional lighting integration
+- [ ] DMX512 protocol support
+
+### Code Improvements
+- [ ] Refactor patterns into class hierarchy
+- [ ] Implement pattern interpolation
+- [ ] Add state machine for transitions
+- [ ] Optimize ESP-NOW packet structure
+- [ ] Implement graceful degradation
+
+## Related Documentation
+
+- **[README.md](README.md)** - Quick start and setup
+- **[docs/hardware.md](docs/hardware.md)** - Wiring and components
+- **[docs/protocols.md](docs/protocols.md)** - MQTT and ESP-NOW specs
+- **[docs/troubleshooting.md](docs/troubleshooting.md)** - Debug guide
