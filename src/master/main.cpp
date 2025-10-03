@@ -1,3 +1,4 @@
+// master main.cpp
 #include "common.h"
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
@@ -15,14 +16,27 @@ const char *password = "kskm2626";
 const char *mqtt_server = "broker.emqx.io";
 const int mqtt_port = 1883;
 
-const char *command_topic = "ta25stage/+/command"; // subscribe to all panels
-const char *global_topic = "ta25stage/command";
-const char *audio_topic = "ta25stage/audio";
+const char *command_topic = "ta25stage/command";
+const char *status_topic = "ta25stage/master/status";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 LEDCommand currentCommand;
+
+// Connection management
+uint8_t mqtt_fail_count = 0;
+uint16_t retry_timeout = 5;
+unsigned long last_heartbeat = 0;
+unsigned long last_wifi_check = 0;
+const unsigned long HEARTBEAT_INTERVAL = 30000;
+const unsigned long WIFI_CHECK_INTERVAL = 60000;
+const uint8_t MAX_MQTT_RETRIES = 5;
+const uint16_t MAX_RETRY_TIMEOUT = 120;
+
+bool wifi_connected = false;
+bool mqtt_connected = false;
+bool low_power_mode = false;
 
 void setup_wifi() {
   delay(10);
@@ -30,7 +44,7 @@ void setup_wifi() {
   Serial.print("Connecting to ");
   Serial.println(ssid);
 
-  WiFi.mode(WIFI_AP_STA); // Both AP and Station mode for ESP-NOW + WiFi
+  WiFi.mode(WIFI_AP_STA);
   WiFi.begin(ssid, password);
 
   uint8_t retry_count = 0;
@@ -41,14 +55,72 @@ void setup_wifi() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi connected.");
+    Serial.println("\n✓ WiFi connected");
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
     Serial.print("MAC address: ");
     Serial.println(WiFi.macAddress());
+    wifi_connected = true;
   } else {
-    Serial.println("\nFailed to connect to WiFi.");
+    Serial.println("\n✗ Failed to connect to WiFi");
+    wifi_connected = false;
   }
+}
+
+void checkWiFiStatus() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("⚠ WiFi disconnected, reconnecting...");
+    wifi_connected = false;
+    setup_wifi();
+  }
+}
+
+void publishHeartbeat() {
+  if (!client.connected())
+    return;
+
+  StaticJsonDocument<512> doc;
+  doc["device"] = "master";
+  doc["uptime"] = millis() / 1000;
+  doc["wifi_rssi"] = WiFi.RSSI();
+  doc["wifi_connected"] = wifi_connected;
+  doc["mqtt_connected"] = mqtt_connected;
+  doc["mqtt_fails"] = mqtt_fail_count;
+  doc["free_heap"] = ESP.getFreeHeap();
+  doc["last_command"]["panelId"] = currentCommand.panelId;
+  doc["last_command"]["patternId"] = currentCommand.patternId;
+  doc["last_command"]["brightness"] = currentCommand.brightness;
+  doc["last_command"]["speed"] = currentCommand.speed;
+
+  char buffer[512];
+  serializeJson(doc, buffer);
+
+  if (client.publish(status_topic, buffer)) {
+    Serial.println("✓ Heartbeat published");
+  }
+}
+
+void enterLowPowerMode() {
+  Serial.println("\n===============================================");
+  Serial.println("✗ ENTERING LOW POWER MODE");
+  Serial.println("===============================================");
+  Serial.println("Maximum retry attempts exceeded.");
+  Serial.println("\nTROUBLESHOOTING STEPS:");
+  Serial.println("1. Check MQTT broker connectivity");
+  Serial.println("   - Ping: broker.emqx.io");
+  Serial.println("   - Test port: 1883");
+  Serial.println("2. Check WiFi signal strength");
+  Serial.print("   - Current RSSI: ");
+  Serial.println(WiFi.RSSI());
+  Serial.println("3. Verify router/internet connection");
+  Serial.println("4. Check firewall settings");
+  Serial.println("\nDevice will enter deep sleep for 5 minutes...");
+  Serial.println("Press reset button to restart immediately.");
+  Serial.println("===============================================");
+  Serial.flush();
+
+  low_power_mode = true;
+  esp_deep_sleep(5 * 60 * 1000000ULL);
 }
 
 // ESP-NOW send callback
@@ -242,29 +314,49 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   // Audio intensity (from separate audio topic)
   cmd.audioIntensity = doc["intensity"] | 0;
 
-  // Send command via ESP-NOW
+  currentCommand = cmd;
   sendESPNowCommand(cmd);
 }
 
 void reconnect() {
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    String clientId = "ESP32Master-" + String(random(0xffff), HEX);
+  if (client.connected()) {
+    mqtt_connected = true;
+    mqtt_fail_count = 0;
+    retry_timeout = 5;
+    return;
+  }
 
-    if (client.connect(clientId.c_str())) {
-      Serial.println("connected");
+  Serial.print("Attempting MQTT connection...");
+  String clientId = "ESP32Master-" + String(random(0xffff), HEX);
 
-      // Subscribe to topics
-      client.subscribe(command_topic);
-      client.subscribe(global_topic);
-      client.subscribe(audio_topic);
+  if (client.connect(clientId.c_str())) {
+    Serial.println("✓ connected");
+    mqtt_connected = true;
+    mqtt_fail_count = 0;
+    retry_timeout = 5;
 
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      delay(5000);
+    client.subscribe(command_topic);
+  } else {
+    Serial.print("✗ failed, rc=");
+    Serial.println(client.state());
+
+    mqtt_connected = false;
+    mqtt_fail_count++;
+
+    if (mqtt_fail_count >= MAX_MQTT_RETRIES) {
+      Serial.println("⚠ Max MQTT retries exceeded");
+      checkWiFiStatus();
+
+      if (mqtt_fail_count >= MAX_MQTT_RETRIES * 2) {
+        enterLowPowerMode();
+      }
     }
+
+    retry_timeout = min((uint16_t)(retry_timeout + 10), MAX_RETRY_TIMEOUT);
+    Serial.print("Retrying in ");
+    Serial.print(retry_timeout);
+    Serial.println(" seconds...");
+    delay(retry_timeout * 1000);
   }
 }
 
@@ -281,8 +373,24 @@ void setup() {
 }
 
 void loop() {
+  if (low_power_mode)
+    return;
+
   if (!client.connected()) {
     reconnect();
+  } else {
+    client.loop();
   }
-  client.loop();
+
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - last_heartbeat >= HEARTBEAT_INTERVAL) {
+    last_heartbeat = currentMillis;
+    publishHeartbeat();
+  }
+
+  if (currentMillis - last_wifi_check >= WIFI_CHECK_INTERVAL) {
+    last_wifi_check = currentMillis;
+    checkWiFiStatus();
+  }
 }

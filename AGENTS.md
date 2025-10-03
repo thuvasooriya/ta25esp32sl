@@ -55,12 +55,22 @@ ta25/
 **Key Functions:**
 
 ```cpp
-void setup_wifi()          // WiFi STA mode connection
-void mqtt_callback()       // MQTT message handler
-void espnow_send_cb()      // ESP-NOW send status callback
-void reconnect()           // MQTT reconnection logic
-void loop()                // MQTT loop + reconnect
+void setup_wifi()          // WiFi STA mode connection with status tracking
+void checkWiFiStatus()     // Periodic WiFi health check and reconnection
+void publishHeartbeat()    // Publish status to ta25stage/status (30s interval)
+void mqttCallback()        // MQTT message handler
+void onDataSent()          // ESP-NOW send status callback
+void reconnect()           // Progressive retry logic with backoff
+void enterLowPowerMode()   // Deep sleep after max failures (5 min)
+void loop()                // MQTT loop + heartbeat + WiFi monitoring
 ```
+
+**Connection Management:**
+- Progressive retry timeouts: 5s → 15s → 25s → ... → 120s max
+- WiFi reconnection after 5 MQTT failures
+- Deep sleep after 10 consecutive MQTT failures
+- Heartbeat publishing every 30 seconds to `ta25stage/status`
+- WiFi health check every 60 seconds
 
 **ESP-NOW Setup:**
 - Uses factory MAC address
@@ -83,16 +93,23 @@ void loop()                // MQTT loop + reconnect
 **Key Functions:**
 
 ```cpp
-void OnDataRecv()                 // ESP-NOW receive callback
+void onDataRecv()                 // ESP-NOW receive callback with timestamp
 void setRegionBrightness()        // PWM control for one region
-void executePattern()             // Pattern dispatcher (switch statement)
+void executePattern()             // Pattern dispatcher with watchdog tracking
+void checkCommandTimeout()        // Warn if no commands for 5 minutes
+void printHeartbeat()             // Status logging every 60 seconds
 void pattern_allOn()              // Pattern 0: Static
 void pattern_breathing()          // Pattern 1: Breathing
 void pattern_wave()               // Pattern 2: Wave/Chase
 void pattern_pulse()              // Pattern 3: Pulse
-void pattern_flicker()            // Pattern 4: Flicker
-void loop()                       // Continuous pattern execution
+void loop()                       // Pattern execution + monitoring
 ```
+
+**Status Monitoring:**
+- Tracks last command received timestamp
+- Logs heartbeat every 60 seconds (uptime, pattern, loop count, heap)
+- Warns if no commands received for 5 minutes
+- Pattern execution watchdog (5s timeout detection ready)
 
 **Custom MAC Address:**
 - Set via `esp_wifi_set_mac(WIFI_IF_STA, panelX_mac)`

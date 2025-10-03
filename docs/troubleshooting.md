@@ -7,11 +7,13 @@ Comprehensive debugging guide for the LED Stage Control System.
 Run through this list before diving into detailed troubleshooting:
 
 - [ ] All ESP32s powered on
-- [ ] Master shows "WiFi connected"
-- [ ] Master shows "MQTT connected"
+- [ ] Master shows "✓ WiFi connected"
+- [ ] Master shows "✓ connected" (MQTT)
 - [ ] Master shows all panels added
-- [ ] Panels show "WiFi channel configured correctly"
+- [ ] Master publishes heartbeat to `ta25stage/status` every 30s
+- [ ] Panels show "✓ WiFi channel configured correctly"
 - [ ] Panels show "Ready to receive commands"
+- [ ] Panels print heartbeat every 60s (uptime, pattern, loops)
 - [ ] WiFi channel numbers match across all devices
 - [ ] Common ground connected (ESP32 GND to PSU GND)
 - [ ] LED strips have power supply voltage
@@ -54,9 +56,16 @@ WiFi connection failed
 
 **Symptoms**:
 ```
-WiFi connected. IP: 192.168.1.100
-Attempting MQTT connection...failed, rc=-2
+✓ WiFi connected
+IP address: 192.168.1.100
+Attempting MQTT connection...✗ failed, rc=-2
+Retrying in 5 seconds...
 ```
+
+**New Features**:
+- Progressive retry timeout: 5s → 15s → 25s → ... → 120s max
+- After 5 failures: WiFi reconnection check
+- After 10 failures: Deep sleep for 5 minutes with troubleshooting tips
 
 **Error Codes**:
 
@@ -208,10 +217,17 @@ WiFi Channel set to: 6
 **Symptoms**:
 ```
 === PANEL 2 ===
-WiFi channel set to: 6
+✓ WiFi channel configured correctly
 Ready to receive commands
-(No further output when master sends)
+✓ Heartbeat | Uptime: 60s | Pattern: 0 | Loops: 6000 | Free heap: 240000
+⚠ No commands received for 5 minutes
+Master may be offline or communication lost
 ```
+
+**New Features**:
+- Heartbeat logged every 60 seconds with diagnostics
+- Warning after 5 minutes without commands
+- Loop counter to detect frozen states
 
 **Solutions**:
 

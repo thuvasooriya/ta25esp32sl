@@ -63,15 +63,15 @@ Detailed specification of MQTT and ESP-NOW communication protocols.
 
 ### Topic Structure
 
-| Topic                  | Direction    | Purpose                       | Retained | QoS |
-| ---------------------- | ------------ | ----------------------------- | -------- | --- |
-| `stage/command`        | App → Master | Broadcast to all panels       | No       | 0   |
-| `stage/panel1/command` | App → Master | Control panel 1 only          | No       | 0   |
-| `stage/panel2/command` | App → Master | Control panel 2 only          | No       | 0   |
-| `stage/panel3/command` | App → Master | Control panel 3 only          | No       | 0   |
-| `stage/panel4/command` | App → Master | Control panel 4 only          | No       | 0   |
-| `stage/audio`          | App → Master | Audio intensity data (future) | No       | 0   |
-| `stage/status`         | Master → App | System status (future)        | Yes      | 0   |
+| Topic                      | Direction    | Purpose                         | Retained | QoS |
+| -------------------------- | ------------ | ------------------------------- | -------- | --- |
+| `ta25stage/command`        | App → Master | All panel control (panelId in JSON) | No   | 0   |
+| `ta25stage/master/status`  | Master → App | Master status heartbeat         | Yes      | 0   |
+
+**Notes:**
+- Panel routing handled by `panelId` field in JSON (0=all, 1-4=specific)
+- Audio data included in command JSON via `audioReactive` and `audioIntensity` fields
+- No separate panel or audio topics needed
 
 ### Command Payload Format
 
@@ -102,6 +102,34 @@ Detailed specification of MQTT and ESP-NOW communication protocols.
 \*Required for pattern 0, optional for others
 
 ### Example Commands
+
+#### Master Status Payload
+
+Published to `ta25stage/master/status` every 30 seconds:
+
+```json
+{
+  "device": "master",
+  "uptime": 3600,
+  "wifi_rssi": -45,
+  "wifi_connected": true,
+  "mqtt_connected": true,
+  "mqtt_fails": 0,
+  "free_heap": 245000,
+  "last_command": {
+    "panelId": 0,
+    "patternId": 2,
+    "brightness": 200,
+    "speed": 75
+  }
+}
+```
+
+**Field Descriptions:**
+- `uptime` - Seconds since boot
+- `wifi_rssi` - WiFi signal strength (dBm)
+- `mqtt_fails` - Consecutive MQTT connection failures
+- `last_command` - Most recent command sent to panels
 
 #### All Panels, Static Pattern
 
@@ -185,12 +213,10 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 **Topic Subscription**:
 
 ```cpp
-client.subscribe("stage/command");
-client.subscribe("stage/panel1/command");
-client.subscribe("stage/panel2/command");
-client.subscribe("stage/panel3/command");
-client.subscribe("stage/panel4/command");
+client.subscribe("ta25stage/command");
 ```
+
+Single topic - panel routing via `panelId` in JSON payload.
 
 ## ESP-NOW Protocol
 
@@ -480,10 +506,16 @@ Register: `esp_now_register_recv_cb(OnDataRecv);`
 
 ```bash
 # Subscribe to all topics
-mosquitto_sub -h test.mosquitto.org -t "stage/#" -v
+mosquitto_sub -h broker.emqx.io -t "ta25stage/#" -v
 
-# Publish test command
-mosquitto_pub -h test.mosquitto.org -t "stage/command" -m '{"panelId":0,"patternId":0,"brightness":255,"regions":[1,2,3,4,5,6,7]}'
+# Publish test command (all panels)
+mosquitto_pub -h broker.emqx.io -t "ta25stage/command" -m '{"panelId":0,"patternId":2,"brightness":255,"regions":[1,2,3,4,5,6,7],"speed":50}'
+
+# Publish to specific panel
+mosquitto_pub -h broker.emqx.io -t "ta25stage/command" -m '{"panelId":2,"patternId":1,"regions":[1,3,5],"speed":80}'
+
+# Monitor master status
+mosquitto_sub -h broker.emqx.io -t "ta25stage/master/status" -v
 ```
 
 **Monitor Master Serial**:
