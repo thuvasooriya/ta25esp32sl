@@ -72,7 +72,8 @@ void effect_breathing() {
       direction = 1;
     }
 
-    uint8_t scaledBrightness = map(breatheBrightness, 0, 255, 0, currentState.brightness);
+    uint8_t scaledBrightness =
+        map(breatheBrightness, 0, 255, 0, currentState.brightness);
 
     for (int r = 0; r < NUM_REGIONS; r++) {
       if (currentState.regions[r]) {
@@ -134,7 +135,8 @@ void effect_pulse() {
       }
     }
 
-    uint8_t scaledBrightness = map(pulseBrightness, 0, 255, 0, currentState.brightness);
+    uint8_t scaledBrightness =
+        map(pulseBrightness, 0, 255, 0, currentState.brightness);
 
     for (int r = 0; r < NUM_REGIONS; r++) {
       if (currentState.regions[r]) {
@@ -203,7 +205,7 @@ void effect_fade_out() {
 
 void executeEffect() {
   lastEffectUpdate = millis();
-  
+
   switch (currentState.effect) {
   case EFFECT_STATIC:
     effect_static();
@@ -256,17 +258,18 @@ void printHeartbeat() {
   Serial.print(loopCounter);
   Serial.print(" | Heap: ");
   Serial.print(ESP.getFreeHeap());
-  
+
   if (lastCommandReceived > 0) {
     Serial.print(" | Last cmd: ");
     Serial.print((millis() - lastCommandReceived) / 1000);
     Serial.print("s ago");
   }
-  
+
   Serial.print(" | Active: ");
   uint8_t activeCount = 0;
   for (int i = 0; i < NUM_REGIONS; i++) {
-    if (currentState.regions[i]) activeCount++;
+    if (currentState.regions[i])
+      activeCount++;
   }
   Serial.print(activeCount);
   Serial.print("/");
@@ -404,15 +407,15 @@ void setup() {
 void loop() {
   executeEffect();
   loopCounter++;
-  
+
   unsigned long currentMillis = millis();
-  
+
   if (currentMillis - lastHeartbeat >= HEARTBEAT_INTERVAL) {
     lastHeartbeat = currentMillis;
     printHeartbeat();
   }
-  
+
   checkCommandTimeout();
-  
+
   delay(10);
 }
