@@ -6,11 +6,8 @@
 #define MAX_REGIONS 20
 #define ESPNOW_WIFI_CHANNEL 6
 
-enum CommandMode {
-  MODE_DIRECT_REGIONS = 0,
-  MODE_SEQUENCE = 1,
-  MODE_GROUP = 2
-};
+#define DEFAULT_BRIGHTNESS 128
+#define DEFAULT_SPEED 50
 
 enum EffectType {
   EFFECT_STATIC = 0,
@@ -21,21 +18,16 @@ enum EffectType {
   EFFECT_FADE_OUT = 5
 };
 
-typedef struct {
-  uint8_t panelId;
-  uint8_t mode;
-  uint8_t sequenceId;
-  uint8_t groupId;
-  bool regions[MAX_REGIONS];
-  uint8_t effectType;
+typedef struct __attribute__((packed)) {
+  uint8_t sequence;
+  uint8_t effect;
   uint8_t brightness;
   uint8_t speed;
-  uint8_t step;
-  bool audioReactive;
-  uint8_t audioIntensity;
+  bool debugMode;
+  uint8_t panelId;
+  bool regions[MAX_REGIONS];
 } LightCommand;
 
-// Custom MAC addresses for panels (much cleaner!)
 uint8_t panel1_mac[] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x01};
 uint8_t panel2_mac[] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x02};
 uint8_t panel3_mac[] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x03};

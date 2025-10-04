@@ -75,21 +75,27 @@ Detailed specification of MQTT and ESP-NOW communication protocols.
 
 ### Command Payload Format
 
-**JSON Schema**:
+**JSON Schema (Normal Mode)**:
 
 ```json
 {
-  "panelId": 0,
-  "mode": 0,
-  "sequenceId": 0,
-  "groupId": 0,
-  "regions": [0, 1, 2, 3, 4],
-  "effectType": 1,
+  "sequence": 1,
+  "effect": 1,
   "brightness": 200,
-  "speed": 50,
-  "step": 0,
-  "audioReactive": false,
-  "audioIntensity": 0
+  "speed": 75
+}
+```
+
+**JSON Schema (Debug Mode)**:
+
+```json
+{
+  "debug": true,
+  "panelId": 1,
+  "regions": [0, 1, 2, 3, 4],
+  "effect": 1,
+  "brightness": 200,
+  "speed": 50
 }
 ```
 
@@ -97,22 +103,17 @@ Detailed specification of MQTT and ESP-NOW communication protocols.
 
 | Field             | Type    | Range   | Required | Description                                        |
 | ----------------- | ------- | ------- | -------- | -------------------------------------------------- |
-| `panelId`         | integer | 0-4     | Yes      | 0 = all panels, 1-4 = specific panel               |
-| `mode`            | integer | 0-2     | Yes      | 0=direct regions, 1=sequence, 2=group              |
-| `sequenceId`      | integer | 0-10    | No       | Sequence ID (used when mode=1)                     |
-| `groupId`         | integer | 0-10    | No       | Group ID (used when mode=2)                        |
-| `regions`         | array   | [0-19]  | Yes      | Region indices (panel-specific, 0-indexed)         |
-| `effectType`      | integer | 0-5     | Yes      | 0=static, 1=breathing, 2=wave, 3=pulse, 4=fade_in, 5=fade_out |
+| `panelId`         | integer | 0-4     | No       | 0 = all panels, 1-4 = specific panel (default: 0)  |
+| `sequence`        | integer | 0-10    | No       | Sequence ID (0 = direct control, default: 0)       |
+| `regions`         | array   | [0-19]  | No       | Region indices (panel-specific, used in debug mode)|
+| `effect`          | integer | 0-5     | No       | 0=static, 1=breathing, 2=wave, 3=pulse, 4=fade_in, 5=fade_out (default: 0) |
 | `brightness`      | integer | 0-255   | No       | Target brightness level (default: 128)             |
 | `speed`           | integer | 0-100   | No       | Animation speed (0=slowest, 100=fastest, default: 50) |
-| `step`            | integer | 0-255   | No       | Step number for multi-step sequences               |
-| `audioReactive`   | boolean | true/false | No    | Enable audio modulation (default: false)           |
-| `audioIntensity`  | integer | 0-255   | No       | Audio intensity level (default: 0)                 |
+| `debug`           | boolean | true/false | No    | Enable debug mode for direct region control (default: false) |
 
 **Modes**:
-- **0 (MODE_DIRECT_REGIONS)**: Direct region control via `regions` array
-- **1 (MODE_SEQUENCE)**: Orchestrated sequence (master calculates regions)
-- **2 (MODE_GROUP)**: Group-based selection (master calculates regions)
+- **Normal Mode** (`debug=false`): Master runs sequence based on `sequence` ID and calculates regions
+- **Debug Mode** (`debug=true`): Direct region control via `regions` array
 
 **Effect Types**:
 - **0 (EFFECT_STATIC)**: Solid brightness
@@ -139,8 +140,8 @@ Published to `ta25stage/master/status` every 30 seconds:
   "free_heap": 245000,
   "last_command": {
     "panelId": 0,
-    "mode": 0,
-    "effectType": 1,
+    "sequence": 1,
+    "effect": 1,
     "brightness": 200,
     "speed": 50
   }
@@ -153,82 +154,58 @@ Published to `ta25stage/master/status` every 30 seconds:
 - `mqtt_fails` - Consecutive MQTT connection failures
 - `last_command` - Most recent command sent to panels
 
-#### All Panels, Static Effect on All Regions
+#### Normal Mode: Run Sequence 1
 
 ```json
 {
-  "panelId": 0,
-  "mode": 0,
-  "regions": [0, 1, 2, 3, 4, 5],
-  "effectType": 0,
-  "brightness": 255,
-  "speed": 50
+  "sequence": 1
 }
 ```
 
-#### Panel 2, Breathing Effect on Specific Regions
+#### Normal Mode: Run Sequence 2 with Custom Effect
 
 ```json
 {
+  "sequence": 2,
+  "effect": 1,
+  "brightness": 200,
+  "speed": 75
+}
+```
+
+#### Debug Mode: Panel 2, Breathing Effect on Specific Regions
+
+```json
+{
+  "debug": true,
   "panelId": 2,
-  "mode": 0,
   "regions": [0, 2, 4],
-  "effectType": 1,
+  "effect": 1,
   "brightness": 200,
   "speed": 50
 }
 ```
 
-#### Panel 1, Wave Effect Fast on Selected Regions
+#### Debug Mode: Panel 1, Wave Effect Fast
 
 ```json
 {
+  "debug": true,
   "panelId": 1,
-  "mode": 0,
   "regions": [1, 2, 3],
-  "effectType": 2,
+  "effect": 2,
   "brightness": 180,
   "speed": 80
 }
 ```
 
-#### Panel 3, Fade In Effect
+#### Debug Mode: All Panels, Static Effect
 
 ```json
 {
-  "panelId": 3,
-  "mode": 0,
-  "regions": [0, 1, 2, 3, 4],
-  "effectType": 4,
-  "brightness": 255,
-  "speed": 30
-}
-```
-
-#### All Panels, Sequence Mode (Future)
-
-```json
-{
-  "panelId": 0,
-  "mode": 1,
-  "sequenceId": 1,
-  "effectType": 1,
-  "brightness": 200,
-  "speed": 60,
-  "step": 0
-}
-```
-
-#### Group-Based Control (Future)
-
-```json
-{
-  "panelId": 0,
-  "mode": 2,
-  "groupId": 1,
-  "effectType": 3,
-  "brightness": 255,
-  "speed": 70
+  "debug": true,
+  "effect": 0,
+  "brightness": 255
 }
 ```
 
@@ -249,7 +226,9 @@ Published to `ta25stage/master/status` every 30 seconds:
 - Uses default values:
   - `brightness`: 128
   - `speed`: 50
-  - `audioReactive`: false
+  - `debug`: false
+  - `sequence`: 0
+  - `effect`: 0
 
 ### MQTT Client Implementation (Master)
 
@@ -267,15 +246,11 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
   LightCommand lightCmd;
   lightCmd.panelId = doc["panelId"] | 0;
-  lightCmd.mode = doc["mode"] | 0;
-  lightCmd.sequenceId = doc["sequenceId"] | 0;
-  lightCmd.groupId = doc["groupId"] | 0;
-  lightCmd.effectType = doc["effectType"] | 0;
-  lightCmd.brightness = doc["brightness"] | 128;
-  lightCmd.speed = doc["speed"] | 50;
-  lightCmd.step = doc["step"] | 0;
-  lightCmd.audioReactive = doc["audioReactive"] | false;
-  lightCmd.audioIntensity = doc["audioIntensity"] | 0;
+  lightCmd.sequence = doc["sequence"] | 0;
+  lightCmd.effect = doc["effect"] | 0;
+  lightCmd.brightness = doc["brightness"] | DEFAULT_BRIGHTNESS;
+  lightCmd.speed = doc["speed"] | DEFAULT_SPEED;
+  lightCmd.debug = doc["debug"] | false;
   
   // Parse regions array (0-indexed)
   JsonArray regions = doc["regions"];
@@ -351,17 +326,13 @@ Must be called **before** `WiFi.mode()`.
 ```cpp
 typedef struct {
   uint8_t panelId;              // 1 byte - 0=all, 1-4=specific panel
-  uint8_t mode;                 // 1 byte - 0=direct, 1=sequence, 2=group
-  uint8_t sequenceId;           // 1 byte - sequence identifier
-  uint8_t groupId;              // 1 byte - group identifier
-  uint8_t effectType;           // 1 byte - 0-5 (static to fade_out)
-  uint8_t brightness;           // 1 byte - 0-255
+  uint8_t sequence;             // 1 byte - sequence identifier (0=direct)
+  uint8_t effect;               // 1 byte - 0-5 (static to fade_out)
+  uint8_t brightness;           // 1 byte - 0-255 (default: 128)
   bool regions[MAX_REGIONS];    // 20 bytes (MAX_REGIONS = 20)
-  uint8_t speed;                // 1 byte - 0-100
-  uint8_t step;                 // 1 byte - multi-step sequence number
-  bool audioReactive;           // 1 byte
-  uint8_t audioIntensity;       // 1 byte - 0-255
-} LightCommand;                 // Total: 30 bytes
+  uint8_t speed;                // 1 byte - 0-100 (default: 50)
+  bool debug;                   // 1 byte - debug mode flag
+} LightCommand;                 // Total: 28 bytes
 ```
 
 **Memory Layout**:
@@ -370,16 +341,12 @@ typedef struct {
 Offset  | Field          | Size
 --------|----------------|-------
 0       | panelId        | 1 byte
-1       | mode           | 1 byte
-2       | sequenceId     | 1 byte
-3       | groupId        | 1 byte
-4       | effectType     | 1 byte
-5       | brightness     | 1 byte
-6-25    | regions[0-19]  | 20 bytes
-26      | speed          | 1 byte
-27      | step           | 1 byte
-28      | audioReactive  | 1 byte
-29      | audioIntensity | 1 byte
+1       | sequence       | 1 byte
+2       | effect         | 1 byte
+3       | brightness     | 1 byte
+4-23    | regions[0-19]  | 20 bytes
+24      | speed          | 1 byte
+25      | debug          | 1 byte
 ```
 
 **Advantages**:
@@ -387,8 +354,9 @@ Offset  | Field          | Size
 - Fixed size (no dynamic allocation)
 - Binary encoding (efficient)
 - Direct memory copy (fast)
-- Well below ESP-NOW 250-byte limit
+- 28 bytes (well below ESP-NOW 250-byte limit)
 - Supports up to 20 regions across 4 panels
+- Simplified from 30 bytes to 28 bytes (removed unused fields)
 
 ### WiFi Channel Requirements
 

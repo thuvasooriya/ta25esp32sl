@@ -10,8 +10,10 @@
 // WiFi Credentials
 // const char *ssid = "arcane";
 // const char *password = "hisashiburi";
-const char *ssid = "Navam";
-const char *password = "kskm2626";
+const char *ssid = "ynotiphone";
+const char *password = "12121212";
+// const char *ssid = "Navam";
+// const char *password = "kskm2626";
 
 // MQTT Broker
 const char *mqtt_server = "broker.emqx.io";
@@ -95,11 +97,12 @@ void publishHeartbeat() {
   doc["mqtt_connected"] = mqtt_connected;
   doc["mqtt_fails"] = mqtt_fail_count;
   doc["free_heap"] = ESP.getFreeHeap();
-  doc["last_command"]["panelId"] = currentCommand.panelId;
-  doc["last_command"]["mode"] = currentCommand.mode;
-  doc["last_command"]["effectType"] = currentCommand.effectType;
+  doc["last_command"]["sequence"] = currentCommand.sequence;
+  doc["last_command"]["effect"] = currentCommand.effect;
   doc["last_command"]["brightness"] = currentCommand.brightness;
   doc["last_command"]["speed"] = currentCommand.speed;
+  doc["last_command"]["debugMode"] = currentCommand.debugMode;
+  doc["last_command"]["panelId"] = currentCommand.panelId;
 
   char buffer[512];
   serializeJson(doc, buffer);
@@ -278,60 +281,67 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   }
 
   LightCommand cmd;
-  
+
   for (int i = 0; i < MAX_REGIONS; i++) {
     cmd.regions[i] = false;
   }
 
-  cmd.panelId = doc["panelId"] | 0;
-  cmd.mode = doc["mode"] | MODE_DIRECT_REGIONS;
-  cmd.sequenceId = doc["sequenceId"] | 0;
-  cmd.groupId = doc["groupId"] | 0;
-  cmd.effectType = doc["effectType"] | EFFECT_STATIC;
-  cmd.brightness = doc["brightness"] | 128;
-  cmd.speed = doc["speed"] | 50;
-  cmd.step = doc["step"] | 0;
-  cmd.audioReactive = doc["audioReactive"] | false;
-  cmd.audioIntensity = doc["audioIntensity"] | 0;
+  cmd.debugMode = doc["debug"] | false;
 
-  if (doc.containsKey("regions")) {
-    JsonArray regions = doc["regions"].as<JsonArray>();
-    for (int region : regions) {
-      if (region >= 0 && region < MAX_REGIONS) {
-        cmd.regions[region] = true;
+  if (cmd.debugMode) {
+    cmd.panelId = doc["panelId"] | 0;
+    cmd.sequence = 0;
+    cmd.effect = doc["effect"] | EFFECT_STATIC;
+    cmd.brightness = doc["brightness"] | DEFAULT_BRIGHTNESS;
+    cmd.speed = doc["speed"] | DEFAULT_SPEED;
+
+    if (doc.containsKey("regions")) {
+      JsonArray regions = doc["regions"].as<JsonArray>();
+      for (int region : regions) {
+        if (region >= 0 && region < MAX_REGIONS) {
+          cmd.regions[region] = true;
+        }
+      }
+    } else {
+      for (int i = 0; i < MAX_REGIONS; i++) {
+        cmd.regions[i] = true;
       }
     }
-  } else {
-    for (int i = 0; i < MAX_REGIONS; i++) {
-      cmd.regions[i] = true;
-    }
-  }
 
-  currentCommand = cmd;
-  
-  if (cmd.mode == MODE_SEQUENCE) {
-    Serial.print("Sequence mode requested, ID: ");
-    Serial.println(cmd.sequenceId);
-    
-    switch (cmd.sequenceId) {
-      case 0:
-        runSequence0();
-        break;
-      case 1:
-        runSequence1();
-        break;
-      case 2:
-        runSequence2();
-        break;
-      case 3:
-        runSequence3();
-        break;
-      default:
-        Serial.print("Unknown sequence ID: ");
-        Serial.println(cmd.sequenceId);
-    }
-  } else {
+    Serial.println("Debug mode: Direct region control");
+    currentCommand = cmd;
     sendESPNowCommand(cmd);
+  } else {
+    cmd.sequence = doc["sequence"] | 0;
+    cmd.effect = doc["effect"] | EFFECT_STATIC;
+    cmd.brightness = doc["brightness"] | DEFAULT_BRIGHTNESS;
+    cmd.speed = doc["speed"] | DEFAULT_SPEED;
+    cmd.panelId = 0;
+
+    currentCommand = cmd;
+
+    Serial.print("Running sequence ");
+    Serial.print(cmd.sequence);
+    Serial.print(" with effect ");
+    Serial.println(cmd.effect);
+
+    switch (cmd.sequence) {
+    case 0:
+      runSequence0();
+      break;
+    case 1:
+      runSequence1();
+      break;
+    case 2:
+      runSequence2();
+      break;
+    case 3:
+      runSequence3();
+      break;
+    default:
+      Serial.print("Unknown sequence ID: ");
+      Serial.println(cmd.sequence);
+    }
   }
 }
 
@@ -341,7 +351,8 @@ void setAllRegions(bool state, LightCommand &cmd) {
   }
 }
 
-void setRegionsByList(const uint8_t* regionList, uint8_t count, bool state, LightCommand &cmd) {
+void setRegionsByList(const uint8_t *regionList, uint8_t count, bool state,
+                      LightCommand &cmd) {
   for (uint8_t i = 0; i < count; i++) {
     cmd.regions[regionList[i]] = state;
   }
@@ -350,58 +361,54 @@ void setRegionsByList(const uint8_t* regionList, uint8_t count, bool state, Ligh
 void runSequence0() {
   Serial.println("\n=== Running Sequence 0: Test Sequence ===");
   sequenceRunning = true;
-  
+
   LightCommand cmd;
+  cmd.sequence = 0;
   cmd.panelId = 0;
-  cmd.mode = MODE_SEQUENCE;
-  cmd.sequenceId = 0;
-  cmd.groupId = 0;
-  cmd.step = 0;
-  cmd.audioReactive = false;
-  cmd.audioIntensity = 0;
-  
+  cmd.debugMode = false;
+
   Serial.println("Step 1: All regions full brightness (2s)");
   setAllRegions(true, cmd);
-  cmd.effectType = EFFECT_STATIC;
+  cmd.effect = EFFECT_STATIC;
   cmd.brightness = 255;
   cmd.speed = 50;
   sendESPNowCommand(cmd);
   delay(2000);
-  
+
   Serial.println("Step 2: Wave effect (5s)");
-  cmd.effectType = EFFECT_WAVE;
+  cmd.effect = EFFECT_WAVE;
   cmd.speed = 60;
   sendESPNowCommand(cmd);
   delay(5000);
-  
+
   Serial.println("Step 3: Pulse fast (3s)");
-  cmd.effectType = EFFECT_PULSE;
+  cmd.effect = EFFECT_PULSE;
   cmd.speed = 80;
   sendESPNowCommand(cmd);
   delay(3000);
-  
+
   Serial.println("Step 4: Pulse slow (3s)");
   cmd.speed = 30;
   sendESPNowCommand(cmd);
   delay(3000);
-  
+
   Serial.println("Step 5: Fade in (3s)");
-  cmd.effectType = EFFECT_FADE_IN;
+  cmd.effect = EFFECT_FADE_IN;
   cmd.speed = 50;
   sendESPNowCommand(cmd);
   delay(3000);
-  
+
   Serial.println("Step 6: Fade out (3s)");
-  cmd.effectType = EFFECT_FADE_OUT;
+  cmd.effect = EFFECT_FADE_OUT;
   sendESPNowCommand(cmd);
   delay(3000);
-  
+
   Serial.println("Step 7: All off");
-  cmd.effectType = EFFECT_STATIC;
+  cmd.effect = EFFECT_STATIC;
   cmd.brightness = 0;
   sendESPNowCommand(cmd);
   delay(500);
-  
+
   Serial.println("✓ Sequence 0 complete\n");
   sequenceRunning = false;
 }
@@ -409,40 +416,34 @@ void runSequence0() {
 void runSequence1() {
   Serial.println("\n=== Running Sequence 1: Vertical Sweep ===");
   sequenceRunning = true;
-  
+
   LightCommand cmd;
+  cmd.sequence = 1;
   cmd.panelId = 0;
-  cmd.mode = MODE_SEQUENCE;
-  cmd.sequenceId = 1;
-  cmd.groupId = 0;
-  cmd.effectType = EFFECT_FADE_IN;
-  cmd.brightness = 200;
-  cmd.speed = 60;
-  cmd.audioReactive = false;
-  cmd.audioIntensity = 0;
-  
+  cmd.debugMode = false;
+  cmd.effect = currentCommand.effect;
+  cmd.brightness = currentCommand.brightness;
+  cmd.speed = currentCommand.speed;
+
   setAllRegions(false, cmd);
-  
+
   Serial.println("Forward sweep: top to bottom");
   for (uint8_t region = 0; region < MAX_REGIONS; region++) {
     cmd.regions[region] = true;
-    cmd.step = region;
     sendESPNowCommand(cmd);
     delay(300);
   }
-  
+
   Serial.println("Hold all lit (2s)");
   delay(2000);
-  
+
   Serial.println("Reverse sweep: bottom to top");
-  cmd.effectType = EFFECT_FADE_OUT;
   for (int region = MAX_REGIONS - 1; region >= 0; region--) {
     cmd.regions[region] = false;
-    cmd.step = MAX_REGIONS - region - 1;
     sendESPNowCommand(cmd);
     delay(300);
   }
-  
+
   Serial.println("✓ Sequence 1 complete\n");
   sequenceRunning = false;
 }
@@ -450,49 +451,43 @@ void runSequence1() {
 void runSequence2() {
   Serial.println("\n=== Running Sequence 2: Group Narrative ===");
   sequenceRunning = true;
-  
+
   LightCommand cmd;
+  cmd.sequence = 2;
   cmd.panelId = 0;
-  cmd.mode = MODE_SEQUENCE;
-  cmd.sequenceId = 2;
-  cmd.groupId = 0;
-  cmd.effectType = EFFECT_FADE_IN;
-  cmd.brightness = 220;
-  cmd.speed = 50;
-  cmd.audioReactive = false;
-  cmd.audioIntensity = 0;
-  
+  cmd.debugMode = false;
+  cmd.effect = currentCommand.effect;
+  cmd.brightness = currentCommand.brightness;
+  cmd.speed = currentCommand.speed;
+
   setAllRegions(false, cmd);
-  
+
   Serial.println("Step 1: Light SYMBOL group");
-  cmd.step = 0;
   setRegionsByList(SYMBOL_REGIONS, SYMBOL_COUNT, true, cmd);
   sendESPNowCommand(cmd);
   delay(4000);
-  
+
   Serial.println("Step 2: Add RAAVANA_HEAD group");
-  cmd.step = 1;
   setRegionsByList(RAAVANA_HEAD_REGIONS, RAAVANA_HEAD_COUNT, true, cmd);
   sendESPNowCommand(cmd);
   delay(4000);
-  
+
   Serial.println("Step 3: Expand to full RAAVANA group");
-  cmd.step = 2;
   setRegionsByList(RAAVANA_REGIONS, RAAVANA_COUNT, true, cmd);
   sendESPNowCommand(cmd);
   delay(5000);
-  
+
   Serial.println("Step 4: Light CONTINENT group");
-  cmd.step = 3;
   setRegionsByList(CONTINENT_REGIONS, CONTINENT_COUNT, true, cmd);
   sendESPNowCommand(cmd);
   delay(5000);
-  
-  Serial.println("Step 5: Fade all out");
-  cmd.effectType = EFFECT_FADE_OUT;
+
+  Serial.println("Step 5: All off");
+  cmd.effect = EFFECT_STATIC;
+  cmd.brightness = 0;
   sendESPNowCommand(cmd);
-  delay(3000);
-  
+  delay(1000);
+
   Serial.println("✓ Sequence 2 complete\n");
   sequenceRunning = false;
 }
@@ -500,51 +495,33 @@ void runSequence2() {
 void runSequence3() {
   Serial.println("\n=== Running Sequence 3: Symbol Emergence ===");
   sequenceRunning = true;
-  
+
   LightCommand cmd;
+  cmd.sequence = 3;
   cmd.panelId = 0;
-  cmd.mode = MODE_SEQUENCE;
-  cmd.sequenceId = 3;
-  cmd.groupId = 0;
-  cmd.brightness = 200;
-  cmd.audioReactive = false;
-  cmd.audioIntensity = 0;
-  
+  cmd.debugMode = false;
+  cmd.effect = currentCommand.effect;
+  cmd.brightness = currentCommand.brightness;
+  cmd.speed = currentCommand.speed;
+
   setAllRegions(false, cmd);
-  
-  Serial.println("Step 1: Fade in SYMBOL regions (0.5s fade)");
-  cmd.step = 0;
-  cmd.effectType = EFFECT_FADE_IN;
-  cmd.speed = 80;
+
+  Serial.println("Step 1: Light SYMBOL regions");
   setRegionsByList(SYMBOL_REGIONS, SYMBOL_COUNT, true, cmd);
   sendESPNowCommand(cmd);
-  delay(500);
-  
-  Serial.println("Step 2: Hold symbols (3s)");
-  cmd.effectType = EFFECT_STATIC;
-  cmd.brightness = 200;
-  sendESPNowCommand(cmd);
   delay(3000);
-  
-  Serial.println("Step 3: Fade in all other regions (2s fade)");
-  cmd.step = 1;
-  cmd.effectType = EFFECT_FADE_IN;
-  cmd.speed = 40;
+
+  Serial.println("Step 2: Add all other regions");
   setAllRegions(true, cmd);
   sendESPNowCommand(cmd);
-  delay(2000);
-  
-  Serial.println("Step 4: Hold full illumination (5s)");
-  cmd.effectType = EFFECT_STATIC;
-  cmd.brightness = 200;
-  sendESPNowCommand(cmd);
   delay(5000);
-  
-  Serial.println("Step 5: Fade all out");
-  cmd.effectType = EFFECT_FADE_OUT;
+
+  Serial.println("Step 3: All off");
+  cmd.effect = EFFECT_STATIC;
+  cmd.brightness = 0;
   sendESPNowCommand(cmd);
-  delay(3000);
-  
+  delay(1000);
+
   Serial.println("✓ Sequence 3 complete\n");
   sequenceRunning = false;
 }
@@ -583,7 +560,9 @@ void reconnect() {
       }
     }
 
-    retry_timeout = min((uint16_t)(retry_timeout + 10), MAX_RETRY_TIMEOUT);
+    retry_timeout = (retry_timeout + 10 > MAX_RETRY_TIMEOUT)
+                        ? MAX_RETRY_TIMEOUT
+                        : (retry_timeout + 10);
     Serial.print("Retrying in ");
     Serial.print(retry_timeout);
     Serial.println(" seconds...");
@@ -601,7 +580,7 @@ void setup() {
 
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(mqttCallback);
-  
+
   Serial.println("\nStarting test sequence in 3 seconds...");
   delay(3000);
   runSequence0();

@@ -165,25 +165,20 @@ typedef struct {
 ```cpp
 typedef struct {
   uint8_t panelId;              // 0 = broadcast, 1-4 = specific panel
-  uint8_t mode;                 // 0=direct regions, 1=sequence, 2=group
-  uint8_t sequenceId;           // Sequence identifier (mode=1)
-  uint8_t groupId;              // Group identifier (mode=2)
-  uint8_t effectType;           // 0-5 (effect function index)
-  uint8_t brightness;           // 0-255 target brightness
+  uint8_t sequence;             // Sequence identifier (0 = direct control)
+  uint8_t effect;               // 0-5 (effect function index)
+  uint8_t brightness;           // 0-255 target brightness (default: 128)
   bool regions[MAX_REGIONS];    // 20 booleans (region enable flags)
-  uint8_t speed;                // 0-100 (mapped to timing intervals)
-  uint8_t step;                 // Multi-step sequence number
-  bool audioReactive;           // Audio modulation flag
-  uint8_t audioIntensity;       // Audio level 0-255
+  uint8_t speed;                // 0-100 (mapped to timing intervals, default: 50)
+  bool debug;                   // Debug mode flag (enables direct region control)
 } LightCommand;
 ```
 
-**Size**: 30 bytes (fits well in ESP-NOW 250-byte limit)
+**Size**: 28 bytes (fits well in ESP-NOW 250-byte limit)
 
-**Modes:**
-- **0 (MODE_DIRECT_REGIONS)**: Direct region control - app specifies exact regions via `regions[]` array
-- **1 (MODE_SEQUENCE)**: Orchestrated sequence - master calculates regions based on `sequenceId` (future)
-- **2 (MODE_GROUP)**: Group-based - master calculates regions by `groupId` (future)
+**Usage Modes:**
+- **Normal Mode** (`debug=false`): Master runs sequence and calculates regions based on `sequence` ID
+- **Debug Mode** (`debug=true`): Direct region control - app/web specifies exact regions via `regions[]` array
 
 **Effect Types:**
 - **0 (EFFECT_STATIC)**: Solid brightness
@@ -238,7 +233,7 @@ void loop() {
 }
 
 void executeEffect() {
-  switch(currentState.effectType) {
+  switch(currentState.effect) {
     case EFFECT_STATIC: effect_static(); break;
     case EFFECT_BREATHING: effect_breathing(); break;
     case EFFECT_WAVE: effect_wave(); break;
@@ -400,8 +395,8 @@ Print received commands:
 
 ```cpp
 void onDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
-  Serial.printf("Received from %02X:%02X:..., Panel ID: %d, Mode: %d, Effect: %d\n",
-    mac[0], mac[1], cmd.panelId, cmd.mode, cmd.effectType);
+  Serial.printf("Received from %02X:%02X:..., Panel ID: %d, Seq: %d, Effect: %d, Debug: %d\n",
+    mac[0], mac[1], cmd.panelId, cmd.sequence, cmd.effect, cmd.debug);
 }
 ```
 
@@ -587,10 +582,11 @@ Create fake commands in `setup()`:
 ```cpp
 LightCommand testCmd;
 testCmd.panelId = 0;
-testCmd.mode = 0;
-testCmd.effectType = EFFECT_BREATHING;
+testCmd.sequence = 0;
+testCmd.effect = EFFECT_BREATHING;
 testCmd.brightness = 200;
 testCmd.speed = 50;
+testCmd.debug = true;
 for (uint8_t i = 0; i < MAX_REGIONS; i++) {
   testCmd.regions[i] = (i < getRegionCount());  // Enable all regions
 }
@@ -665,10 +661,17 @@ const uint8_t CONTINENT_REGIONS[] = {5, 10, 14};
 
 ### Triggering Sequences
 
-**Via MQTT**: Publish to `ta25stage/command` with `mode=1`:
+**Via MQTT**: Publish to `ta25stage/command` with sequence ID (normal mode):
 
 ```json
-{"mode": 1, "sequenceId": 0}
+{"sequence": 1}
+{"sequence": 2, "effect": 1, "brightness": 200, "speed": 75}
+```
+
+**Debug Mode** (direct region control):
+
+```json
+{"debug": true, "panelId": 1, "regions": [0,1,2], "effect": 1, "brightness": 150}
 ```
 
 **In Code**: Call sequence function directly (blocking):

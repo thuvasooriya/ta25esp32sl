@@ -20,7 +20,7 @@ void initPWMChannels() {
 #define PWM_RESOLUTION 8
 
 LightCommand currentState;
-uint8_t lastEffectType = EFFECT_STATIC;
+uint8_t lastEffect = EFFECT_STATIC;
 
 unsigned long lastCommandReceived = 0;
 unsigned long lastEffectUpdate = 0;
@@ -135,16 +135,10 @@ void effect_pulse() {
     }
 
     uint8_t scaledBrightness = map(pulseBrightness, 0, 255, 0, currentState.brightness);
-    uint8_t finalBrightness = scaledBrightness;
-
-    if (currentState.audioReactive && currentState.audioIntensity > 0) {
-      finalBrightness = map(currentState.audioIntensity, 0, 255,
-                            scaledBrightness / 2, scaledBrightness);
-    }
 
     for (int r = 0; r < NUM_REGIONS; r++) {
       if (currentState.regions[r]) {
-        setRegionBrightness(r, finalBrightness);
+        setRegionBrightness(r, scaledBrightness);
       } else {
         setRegionBrightness(r, 0);
       }
@@ -210,7 +204,7 @@ void effect_fade_out() {
 void executeEffect() {
   lastEffectUpdate = millis();
   
-  switch (currentState.effectType) {
+  switch (currentState.effect) {
   case EFFECT_STATIC:
     effect_static();
     break;
@@ -252,10 +246,8 @@ void printHeartbeat() {
   Serial.print(NUM_REGIONS);
   Serial.print(" regions) | Uptime: ");
   Serial.print(millis() / 1000);
-  Serial.print("s | Mode: ");
-  Serial.print(currentState.mode);
-  Serial.print(" | Effect: ");
-  Serial.print(currentState.effectType);
+  Serial.print("s | Effect: ");
+  Serial.print(currentState.effect);
   Serial.print(" | Brightness: ");
   Serial.print(currentState.brightness);
   Serial.print(" | Speed: ");
@@ -309,17 +301,15 @@ void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
     memcpy(&receivedCmd, data, sizeof(LightCommand));
 
     if (receivedCmd.panelId == 0 || receivedCmd.panelId == PANEL_ID) {
-      Serial.print("✓ Command accepted - Mode: ");
-      Serial.print(receivedCmd.mode);
-      Serial.print(" Effect: ");
-      Serial.print(receivedCmd.effectType);
+      Serial.print("✓ Command accepted - Effect: ");
+      Serial.print(receivedCmd.effect);
       Serial.print(" Brightness: ");
       Serial.println(receivedCmd.brightness);
 
-      if (receivedCmd.effectType != lastEffectType) {
+      if (receivedCmd.effect != lastEffect) {
         Serial.println("Effect type changed, resetting effect states");
         resetEffectStates();
-        lastEffectType = receivedCmd.effectType;
+        lastEffect = receivedCmd.effect;
       }
 
       currentState = receivedCmd;
@@ -398,13 +388,10 @@ void setup() {
     setRegionBrightness(i, 0);
   }
 
-  currentState.mode = MODE_DIRECT_REGIONS;
-  currentState.effectType = EFFECT_STATIC;
+  currentState.effect = EFFECT_STATIC;
   currentState.brightness = 128;
   currentState.speed = 50;
-  currentState.audioReactive = false;
-  currentState.audioIntensity = 0;
-  lastEffectType = EFFECT_STATIC;
+  lastEffect = EFFECT_STATIC;
 
   for (int i = 0; i < MAX_REGIONS; i++) {
     currentState.regions[i] = (i < NUM_REGIONS);
