@@ -75,7 +75,9 @@ Detailed specification of MQTT and ESP-NOW communication protocols.
 
 ### Command Payload Format
 
-**JSON Schema (Normal Mode)**:
+The UI operates in two modes: **Normal Mode** (sequences with configurable effects) and **Debug Mode** (direct region/panel control).
+
+**Normal Mode - Sequence with Effect Settings**:
 
 ```json
 {
@@ -86,18 +88,30 @@ Detailed specification of MQTT and ESP-NOW communication protocols.
 }
 ```
 
-**JSON Schema (Debug Mode)**:
+- `sequence`: 0-3 (which pre-programmed sequence to run)
+- `effect`: 0-5 (effect type to apply during sequence)
+- `brightness`: 0-255 (target brightness for effect)
+- `speed`: 0-100 (effect timing/speed)
+
+**Debug Mode - Direct Region Control**:
 
 ```json
 {
   "debug": true,
   "panelId": 1,
-  "regions": [0, 1, 2, 3, 4],
-  "effect": 1,
-  "brightness": 200,
+  "regions": [0, 2, 4],
+  "effect": 0,
+  "brightness": 255,
   "speed": 50
 }
 ```
+
+- `debug`: true (enables direct control mode)
+- `panelId`: 0-4 (0=all, 1-4=specific panel, optional)
+- `regions`: Array of region indices 0-19 (which regions to control)
+- `effect`: 0-5 (effect to apply to selected regions)
+- `brightness`: 0-255
+- `speed`: 0-100
 
 **Field Specifications**:
 
