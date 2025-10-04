@@ -1,33 +1,32 @@
-// panel main.cpp
 #include "common.h"
+#include "panel_config.h"
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
 
-// This will be defined by build flag in platformio.ini
 #ifndef PANEL_ID
 #define PANEL_ID 1
 #endif
 
-// LED Region Setup
-const uint8_t pwmPins[NUM_REGIONS] = {25, 26, 27, 14, 12, 13, 15};
-const uint8_t pwmChannels[NUM_REGIONS] = {0, 1, 2, 3, 4, 5, 6};
+uint8_t pwmChannels[MAX_REGIONS];
 
-// PWM Configuration
+void initPWMChannels() {
+  for (int i = 0; i < MAX_REGIONS; i++) {
+    pwmChannels[i] = i;
+  }
+}
+
 #define PWM_FREQ 5000
 #define PWM_RESOLUTION 8
 
-// Current state
-LEDCommand currentState;
+LightCommand currentState;
 
-// Status tracking
 unsigned long lastCommandReceived = 0;
-unsigned long lastPatternUpdate = 0;
+unsigned long lastEffectUpdate = 0;
 unsigned long loopCounter = 0;
 unsigned long lastHeartbeat = 0;
 const unsigned long COMMAND_TIMEOUT = 300000;
 const unsigned long HEARTBEAT_INTERVAL = 60000;
-const unsigned long PATTERN_WATCHDOG = 5000;
 
 void setRegionBrightness(uint8_t region, uint8_t brightness) {
   if (region < NUM_REGIONS) {
@@ -35,8 +34,7 @@ void setRegionBrightness(uint8_t region, uint8_t brightness) {
   }
 }
 
-// Pattern 0: All On
-void pattern_allOn() {
+void effect_static() {
   for (int r = 0; r < NUM_REGIONS; r++) {
     if (currentState.regions[r]) {
       setRegionBrightness(r, currentState.brightness);
@@ -46,8 +44,7 @@ void pattern_allOn() {
   }
 }
 
-// Pattern 1: Breathing
-void pattern_breathing() {
+void effect_breathing() {
   static unsigned long lastUpdate = 0;
   static uint8_t breatheBrightness = 0;
   static int8_t direction = 1;
@@ -68,9 +65,11 @@ void pattern_breathing() {
       direction = 1;
     }
 
+    uint8_t scaledBrightness = map(breatheBrightness, 0, 255, 0, currentState.brightness);
+
     for (int r = 0; r < NUM_REGIONS; r++) {
       if (currentState.regions[r]) {
-        setRegionBrightness(r, breatheBrightness);
+        setRegionBrightness(r, scaledBrightness);
       } else {
         setRegionBrightness(r, 0);
       }
@@ -78,8 +77,7 @@ void pattern_breathing() {
   }
 }
 
-// Pattern 2: Wave
-void pattern_wave() {
+void effect_wave() {
   static unsigned long lastUpdate = 0;
   static uint8_t activeRegion = 0;
 
@@ -94,7 +92,7 @@ void pattern_wave() {
     }
 
     if (currentState.regions[activeRegion]) {
-      setRegionBrightness(activeRegion, 255);
+      setRegionBrightness(activeRegion, currentState.brightness);
     }
 
     do {
@@ -103,8 +101,7 @@ void pattern_wave() {
   }
 }
 
-// Pattern 3: Pulse
-void pattern_pulse() {
+void effect_pulse() {
   static unsigned long lastUpdate = 0;
   static uint8_t pulseBrightness = 0;
   static bool increasing = true;
@@ -130,12 +127,12 @@ void pattern_pulse() {
       }
     }
 
-    uint8_t finalBrightness = pulseBrightness;
+    uint8_t scaledBrightness = map(pulseBrightness, 0, 255, 0, currentState.brightness);
+    uint8_t finalBrightness = scaledBrightness;
 
-    // Modulate with audio if enabled
     if (currentState.audioReactive && currentState.audioIntensity > 0) {
       finalBrightness = map(currentState.audioIntensity, 0, 255,
-                            pulseBrightness / 2, pulseBrightness);
+                            scaledBrightness / 2, scaledBrightness);
     }
 
     for (int r = 0; r < NUM_REGIONS; r++) {
@@ -148,24 +145,85 @@ void pattern_pulse() {
   }
 }
 
-void executePattern() {
-  lastPatternUpdate = millis();
+void effect_fade_in() {
+  static unsigned long lastUpdate = 0;
+  static uint8_t fadeBrightness = 0;
+
+  unsigned long currentMillis = millis();
+  uint16_t updateInterval = map(currentState.speed, 0, 100, 50, 5);
+
+  if (currentMillis - lastUpdate >= updateInterval) {
+    lastUpdate = currentMillis;
+
+    if (fadeBrightness < currentState.brightness) {
+      fadeBrightness += 5;
+      if (fadeBrightness > currentState.brightness) {
+        fadeBrightness = currentState.brightness;
+      }
+    }
+
+    for (int r = 0; r < NUM_REGIONS; r++) {
+      if (currentState.regions[r]) {
+        setRegionBrightness(r, fadeBrightness);
+      } else {
+        setRegionBrightness(r, 0);
+      }
+    }
+  }
+}
+
+void effect_fade_out() {
+  static unsigned long lastUpdate = 0;
+  static uint8_t fadeBrightness = 255;
+
+  unsigned long currentMillis = millis();
+  uint16_t updateInterval = map(currentState.speed, 0, 100, 50, 5);
+
+  if (currentMillis - lastUpdate >= updateInterval) {
+    lastUpdate = currentMillis;
+
+    if (fadeBrightness > 0) {
+      if (fadeBrightness >= 5) {
+        fadeBrightness -= 5;
+      } else {
+        fadeBrightness = 0;
+      }
+    }
+
+    for (int r = 0; r < NUM_REGIONS; r++) {
+      if (currentState.regions[r]) {
+        setRegionBrightness(r, fadeBrightness);
+      } else {
+        setRegionBrightness(r, 0);
+      }
+    }
+  }
+}
+
+void executeEffect() {
+  lastEffectUpdate = millis();
   
-  switch (currentState.patternId) {
-  case 0:
-    pattern_allOn();
+  switch (currentState.effectType) {
+  case EFFECT_STATIC:
+    effect_static();
     break;
-  case 1:
-    pattern_breathing();
+  case EFFECT_BREATHING:
+    effect_breathing();
     break;
-  case 2:
-    pattern_wave();
+  case EFFECT_WAVE:
+    effect_wave();
     break;
-  case 3:
-    pattern_pulse();
+  case EFFECT_PULSE:
+    effect_pulse();
+    break;
+  case EFFECT_FADE_IN:
+    effect_fade_in();
+    break;
+  case EFFECT_FADE_OUT:
+    effect_fade_out();
     break;
   default:
-    pattern_allOn();
+    effect_static();
   }
 }
 
@@ -183,10 +241,14 @@ void checkCommandTimeout() {
 void printHeartbeat() {
   Serial.print("✓ Panel ");
   Serial.print(PANEL_ID);
-  Serial.print(" | Uptime: ");
+  Serial.print(" (");
+  Serial.print(NUM_REGIONS);
+  Serial.print(" regions) | Uptime: ");
   Serial.print(millis() / 1000);
-  Serial.print("s | Pattern: ");
-  Serial.print(currentState.patternId);
+  Serial.print("s | Mode: ");
+  Serial.print(currentState.mode);
+  Serial.print(" | Effect: ");
+  Serial.print(currentState.effectType);
   Serial.print(" | Brightness: ");
   Serial.print(currentState.brightness);
   Serial.print(" | Speed: ");
@@ -202,15 +264,31 @@ void printHeartbeat() {
     Serial.print("s ago");
   }
   
-  Serial.print(" | Active regions: ");
+  Serial.print(" | Active: ");
   uint8_t activeCount = 0;
   for (int i = 0; i < NUM_REGIONS; i++) {
     if (currentState.regions[i]) activeCount++;
   }
-  Serial.println(activeCount);
+  Serial.print(activeCount);
+  Serial.print("/");
+  Serial.println(NUM_REGIONS);
 }
 
-// ESP-NOW receive callback
+void printRegionConfig() {
+  Serial.println("\n=== Region Configuration ===");
+  for (int i = 0; i < NUM_REGIONS; i++) {
+    Serial.print(i);
+    Serial.print(": ");
+    Serial.print(getRegionName(i));
+    Serial.print(" (GPIO ");
+    Serial.print(getRegionPin(i));
+    Serial.print(", Pos ");
+    Serial.print(getRegionVerticalPos(i));
+    Serial.println(")");
+  }
+  Serial.println("===========================\n");
+}
+
 void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
   char macStr[18];
   snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X", mac_addr[0],
@@ -219,13 +297,15 @@ void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
   Serial.print("Received from: ");
   Serial.println(macStr);
 
-  if (data_len == sizeof(LEDCommand)) {
-    LEDCommand receivedCmd;
-    memcpy(&receivedCmd, data, sizeof(LEDCommand));
+  if (data_len == sizeof(LightCommand)) {
+    LightCommand receivedCmd;
+    memcpy(&receivedCmd, data, sizeof(LightCommand));
 
     if (receivedCmd.panelId == 0 || receivedCmd.panelId == PANEL_ID) {
-      Serial.print("✓ Command accepted - Pattern: ");
-      Serial.print(receivedCmd.patternId);
+      Serial.print("✓ Command accepted - Mode: ");
+      Serial.print(receivedCmd.mode);
+      Serial.print(" Effect: ");
+      Serial.print(receivedCmd.effectType);
       Serial.print(" Brightness: ");
       Serial.println(receivedCmd.brightness);
 
@@ -236,6 +316,11 @@ void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
       Serial.print(receivedCmd.panelId);
       Serial.println(")");
     }
+  } else {
+    Serial.print("⚠ Size mismatch: expected ");
+    Serial.print(sizeof(LightCommand));
+    Serial.print(", got ");
+    Serial.println(data_len);
   }
 }
 
@@ -246,82 +331,77 @@ void setup() {
   Serial.print(PANEL_ID);
   Serial.println(" ===");
 
-  // Initialize WiFi in station mode
   WiFi.mode(WIFI_STA);
 
-  // Print factory MAC for reference
   Serial.print("Factory MAC: ");
   Serial.println(WiFi.macAddress());
 
-  // Set custom MAC address based on PANEL_ID
   uint8_t customMAC[6] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x00};
   customMAC[5] = PANEL_ID;
 
   esp_err_t err = esp_wifi_set_mac(WIFI_IF_STA, customMAC);
   if (err == ESP_OK) {
-    Serial.println("Custom MAC address set successfully");
+    Serial.println("✓ Custom MAC address set");
   } else {
-    Serial.println("Failed to set custom MAC address");
+    Serial.println("✗ Failed to set custom MAC address");
   }
 
   Serial.print("Custom MAC: ");
   Serial.println(WiFi.macAddress());
 
-  // Disconnect from any WiFi
   WiFi.disconnect();
 
-  // Set WiFi channel to match master
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_channel(ESPNOW_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
   esp_wifi_set_promiscuous(false);
 
-  // Verify channel was set correctly
   int8_t actual_channel = WiFi.channel();
-  Serial.print("WiFi Channel set to: ");
+  Serial.print("WiFi Channel: ");
   Serial.println(actual_channel);
 
   if (actual_channel != ESPNOW_WIFI_CHANNEL) {
-    Serial.println("ERROR: Failed to set WiFi channel!");
+    Serial.println("✗ WiFi channel mismatch!");
     Serial.print("Expected: ");
     Serial.print(ESPNOW_WIFI_CHANNEL);
     Serial.print(", Got: ");
     Serial.println(actual_channel);
   } else {
-    Serial.println("✓ WiFi channel configured correctly");
+    Serial.println("✓ WiFi channel configured");
   }
 
-  // Initialize ESP-NOW
   if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
+    Serial.println("✗ ESP-NOW init failed");
     return;
   }
 
-  // Register receive callback
   esp_now_register_recv_cb(onDataRecv);
 
-  // Initialize PWM channels
+  initPWMChannels();
+
   for (int i = 0; i < NUM_REGIONS; i++) {
+    uint8_t pin = getRegionPin(i);
     ledcSetup(pwmChannels[i], PWM_FREQ, PWM_RESOLUTION);
-    ledcAttachPin(pwmPins[i], pwmChannels[i]);
+    ledcAttachPin(pin, pwmChannels[i]);
     setRegionBrightness(i, 0);
   }
 
-  // Initialize default state
-  currentState.patternId = 0;
+  currentState.mode = MODE_DIRECT_REGIONS;
+  currentState.effectType = EFFECT_STATIC;
   currentState.brightness = 128;
   currentState.speed = 50;
   currentState.audioReactive = false;
   currentState.audioIntensity = 0;
 
-  for (int i = 0; i < NUM_REGIONS; i++) {
-    currentState.regions[i] = true;
+  for (int i = 0; i < MAX_REGIONS; i++) {
+    currentState.regions[i] = (i < NUM_REGIONS);
   }
 
-  Serial.println("Ready to receive commands");
+  printRegionConfig();
+  Serial.println("✓ Ready to receive commands");
 }
 
 void loop() {
-  executePattern();
+  executeEffect();
   loopCounter++;
   
   unsigned long currentMillis = millis();

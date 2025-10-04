@@ -8,7 +8,8 @@ Technical documentation for AI coding agents and developers working on the ESP32
 ta25/
 ├── platformio.ini          # Build configurations (5 environments)
 ├── include/
-│   └── common.h            # Shared structs, constants, MAC addresses
+│   ├── common.h            # Shared structs, constants, MAC addresses
+│   └── panel_config.h      # Panel region configurations and metadata
 ├── src/
 │   ├── master/
 │   │   └── main.cpp        # Master: MQTT subscriber + ESP-NOW sender
@@ -48,9 +49,10 @@ ta25/
 
 **Responsibilities:**
 1. Connect to WiFi network
-2. Subscribe to MQTT topics (`stage/command`, `stage/panel[1-4]/command`, `stage/audio`)
-3. Parse JSON commands
-4. Broadcast to panels via ESP-NOW
+2. Subscribe to MQTT topic (`ta25stage/command`)
+3. Parse JSON commands into `LightCommand` struct
+4. Broadcast commands to panels via ESP-NOW
+5. Publish heartbeat status to `ta25stage/master/status`
 
 **Key Functions:**
 
@@ -87,74 +89,109 @@ void loop()                // MQTT loop + heartbeat + WiFi monitoring
 1. Set custom MAC address (`AA:AA:AA:AA:AA:0X`)
 2. Initialize WiFi in STA mode (no AP connection)
 3. Set WiFi channel to match master
-4. Receive ESP-NOW commands
-5. Execute LED patterns via PWM
+4. Receive ESP-NOW commands (`LightCommand` struct)
+5. Execute LED effects via PWM on configured regions
 
 **Key Functions:**
 
 ```cpp
 void onDataRecv()                 // ESP-NOW receive callback with timestamp
 void setRegionBrightness()        // PWM control for one region
-void executePattern()             // Pattern dispatcher with watchdog tracking
+void initPWMChannels()            // Dynamic PWM channel initialization
+void executeEffect()              // Effect dispatcher
 void checkCommandTimeout()        // Warn if no commands for 5 minutes
 void printHeartbeat()             // Status logging every 60 seconds
-void pattern_allOn()              // Pattern 0: Static
-void pattern_breathing()          // Pattern 1: Breathing
-void pattern_wave()               // Pattern 2: Wave/Chase
-void pattern_pulse()              // Pattern 3: Pulse
-void loop()                       // Pattern execution + monitoring
+void printRegionConfig()          // Display panel region layout on boot
+void effect_static()              // Effect 0: Static brightness
+void effect_breathing()           // Effect 1: Breathing
+void effect_wave()                // Effect 2: Wave/Chase
+void effect_pulse()               // Effect 3: Pulse
+void effect_fade_in()             // Effect 4: Fade in
+void effect_fade_out()            // Effect 5: Fade out
+void loop()                       // Effect execution + monitoring
 ```
 
 **Status Monitoring:**
 - Tracks last command received timestamp
-- Logs heartbeat every 60 seconds (uptime, pattern, loop count, heap)
+- Logs heartbeat every 60 seconds (uptime, effect, loop count, heap, region count)
 - Warns if no commands received for 5 minutes
-- Pattern execution watchdog (5s timeout detection ready)
+- Effect execution watchdog (5s timeout detection ready)
 
 **Custom MAC Address:**
 - Set via `esp_wifi_set_mac(WIFI_IF_STA, panelX_mac)`
 - Allows master to address specific panels
 - Must be set before WiFi init
 
-**GPIO Pin Mapping:**
+**Panel Configuration System:**
+- Region metadata defined in `include/panel_config.h`
+- Each panel has unique region count and GPIO pins
+- Panel 1: 5 regions, Panel 2: 6 regions, Panel 3: 5 regions, Panel 4: 4 regions
+- Total system: 20 regions across 4 panels
+- Each region has: GPIO pin, name, vertical position, local group, cross-panel group
+- Configuration selected at compile time via `PANEL_ID` macro
+
+**Region Metadata Structure:**
 
 ```cpp
-const uint8_t regionPins[NUM_REGIONS] = {25, 26, 27, 14, 12, 13, 15};
-// Region 1-7 → GPIO 25, 26, 27, 14, 12, 13, 15
+typedef struct {
+  uint8_t pin;              // GPIO pin number
+  const char* name;         // Region name (e.g., "BULL_SYMBOL")
+  uint8_t verticalPos;      // Vertical position (0=top)
+  uint8_t localGroup;       // Panel-local group ID
+  uint8_t crossPanelGroup;  // Cross-panel group ID
+} RegionConfig;
 ```
 
 **PWM Setup:**
 - 5000 Hz frequency
 - 8-bit resolution (0-255)
-- Each region gets dedicated PWM channel (0-6)
+- Each region gets dedicated PWM channel
+- Dynamic channel allocation based on panel's region count
 
 ## Communication Flow
 
 ### MQTT → ESP-NOW Flow
 
-1. **App/Web** publishes JSON to `stage/command` (MQTT)
-2. **Master** receives via `mqtt_callback()`
-3. **Master** parses JSON into `LEDCommand` struct
-4. **Master** broadcasts struct via ESP-NOW to panels
-5. **Panels** receive in `OnDataRecv()`
+1. **App/Web** publishes JSON to `ta25stage/command` (MQTT)
+2. **Master** receives via `mqttCallback()`
+3. **Master** parses JSON into `LightCommand` struct
+4. **Master** broadcasts struct via ESP-NOW to panels (or specific panel)
+5. **Panels** receive in `onDataRecv()`
 6. **Panels** validate `panelId` (0 = all, or matches own ID)
-7. **Panels** update `currentState` and execute pattern
+7. **Panels** update `currentState` and execute effect
 
-### LEDCommand Struct
+### LightCommand Struct
 
 ```cpp
 typedef struct {
-  uint8_t panelId;              // 0 = broadcast, 1-4 = specific
-  uint8_t patternId;            // 0-4 (pattern function index)
-  uint8_t brightness;           // 0-255 (used in Pattern 0)
-  bool regions[NUM_REGIONS];    // 7 booleans (region enable flags)
+  uint8_t panelId;              // 0 = broadcast, 1-4 = specific panel
+  uint8_t mode;                 // 0=direct regions, 1=sequence, 2=group
+  uint8_t sequenceId;           // Sequence identifier (mode=1)
+  uint8_t groupId;              // Group identifier (mode=2)
+  uint8_t effectType;           // 0-5 (effect function index)
+  uint8_t brightness;           // 0-255 target brightness
+  bool regions[MAX_REGIONS];    // 20 booleans (region enable flags)
   uint8_t speed;                // 0-100 (mapped to timing intervals)
-  bool audioReactive;           // Future: audio modulation flag
-  uint8_t audioIntensity;       // Future: audio level 0-255
-} LEDCommand;
+  uint8_t step;                 // Multi-step sequence number
+  bool audioReactive;           // Audio modulation flag
+  uint8_t audioIntensity;       // Audio level 0-255
+} LightCommand;
 ```
 
-**Size**: ~18 bytes (fits well in ESP-NOW 250-byte limit)
+**Size**: 30 bytes (fits well in ESP-NOW 250-byte limit)
+
+**Modes:**
+- **0 (MODE_DIRECT_REGIONS)**: Direct region control - app specifies exact regions via `regions[]` array
+- **1 (MODE_SEQUENCE)**: Orchestrated sequence - master calculates regions based on `sequenceId` (future)
+- **2 (MODE_GROUP)**: Group-based - master calculates regions by `groupId` (future)
+
+**Effect Types:**
+- **0 (EFFECT_STATIC)**: Solid brightness
+- **1 (EFFECT_BREATHING)**: Sine wave fade
+- **2 (EFFECT_WAVE)**: Chase effect
+- **3 (EFFECT_PULSE)**: Quick pulses
+- **4 (EFFECT_FADE_IN)**: Gradual fade in
+- **5 (EFFECT_FADE_OUT)**: Gradual fade out
 
 ### ESP-NOW Configuration
 
@@ -177,32 +214,47 @@ uint8_t broadcast_mac[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 **Master**: WiFi channel determined by router connection  
 **Panels**: Explicitly set via `esp_wifi_set_channel()`
 
-## Pattern System
+## Effect vs. Sequence Terminology
 
-### Pattern Execution Loop
+**Effect**: Low-level visual animation executed on panels (breathing, wave, fade, etc.)
+- Runs locally on each panel
+- Operates on regions specified by command
+- Examples: breathing, wave, pulse, fade_in, fade_out
+
+**Sequence**: High-level choreographed narrative orchestrated by master (future feature)
+- Multi-step storytelling with coordinated timing
+- Master calculates which regions to light at each step
+- Examples: vertical sweep, symbolic narrative, audio-reactive sequences
+
+Current implementation focuses on **effects**. Sequences are planned for future development.
+
+## Effect System
+
+### Effect Execution Loop
 
 ```cpp
 void loop() {
-  executePattern();  // Called continuously (no delay)
+  executeEffect();  // Called continuously (no delay)
 }
 
-void executePattern() {
-  switch(currentState.patternId) {
-    case 0: pattern_allOn(); break;
-    case 1: pattern_breathing(); break;
-    case 2: pattern_wave(); break;
-    case 3: pattern_pulse(); break;
-    case 4: pattern_flicker(); break;
+void executeEffect() {
+  switch(currentState.effectType) {
+    case EFFECT_STATIC: effect_static(); break;
+    case EFFECT_BREATHING: effect_breathing(); break;
+    case EFFECT_WAVE: effect_wave(); break;
+    case EFFECT_PULSE: effect_pulse(); break;
+    case EFFECT_FADE_IN: effect_fade_in(); break;
+    case EFFECT_FADE_OUT: effect_fade_out(); break;
   }
 }
 ```
 
-### Pattern Implementation Guidelines
+### Effect Implementation Guidelines
 
-All patterns follow this structure:
+All effects follow this structure:
 
 ```cpp
-void pattern_example() {
+void effect_example() {
   static unsigned long lastUpdate = 0;
   unsigned long currentMillis = millis();
   
@@ -213,7 +265,8 @@ void pattern_example() {
     lastUpdate = currentMillis;
     
     // Update logic here
-    for (int r = 0; r < NUM_REGIONS; r++) {
+    uint8_t regionCount = getRegionCount();
+    for (uint8_t r = 0; r < regionCount; r++) {
       if (currentState.regions[r]) {
         uint8_t brightness = /* calculate brightness */;
         setRegionBrightness(r, brightness);
@@ -228,45 +281,52 @@ void pattern_example() {
 - Non-blocking (no `delay()`)
 - Check enabled regions before updating
 - Use `map()` to scale `speed` parameter to timing
+- Use `getRegionCount()` to get panel-specific region count
 
-### Existing Patterns
+### Existing Effects
 
-#### Pattern 0: All On (Static)
+#### Effect 0: Static
 
 - Uses `currentState.brightness` directly
 - No animation, just PWM write
 - All enabled regions at same brightness
 
-#### Pattern 1: Breathing
+#### Effect 1: Breathing
 
 - Sine wave brightness modulation
 - Speed controls frequency
 - Synchronized across all regions
 
-#### Pattern 2: Wave/Chase
+#### Effect 2: Wave/Chase
 
 - One region lit at a time
 - Cycles through enabled regions sequentially
 - Speed controls transition rate
 
-#### Pattern 3: Pulse
+#### Effect 3: Pulse
 
 - Quick on/off toggle
 - Can be audio-reactive (future)
 - All regions synchronized
 
-#### Pattern 4: Flicker
+#### Effect 4: Fade In
 
-- Random brightness per region
-- Simulates candle/fire effect
-- Speed controls update frequency
+- Gradual brightness increase from 0 to target
+- Speed controls fade duration
+- All enabled regions synchronized
 
-### Adding New Patterns
+#### Effect 5: Fade Out
 
-1. **Define pattern function** in `src/panel/main.cpp`:
+- Gradual brightness decrease to 0
+- Speed controls fade duration
+- All enabled regions synchronized
+
+### Adding New Effects
+
+1. **Define effect function** in `src/panel/main.cpp`:
 
 ```cpp
-void pattern_myNewEffect() {
+void effect_myNewEffect() {
   static unsigned long lastUpdate = 0;
   static uint8_t step = 0;
   
@@ -275,7 +335,8 @@ void pattern_myNewEffect() {
   if (millis() - lastUpdate >= interval) {
     lastUpdate = millis();
     
-    for (int r = 0; r < NUM_REGIONS; r++) {
+    uint8_t regionCount = getRegionCount();
+    for (uint8_t r = 0; r < regionCount; r++) {
       if (currentState.regions[r]) {
         uint8_t brightness = /* your logic */;
         setRegionBrightness(r, brightness);
@@ -287,15 +348,26 @@ void pattern_myNewEffect() {
 }
 ```
 
-2. **Add to switch** in `executePattern()`:
+2. **Add enum value** in `include/common.h`:
 
 ```cpp
-case 5:
-  pattern_myNewEffect();
+enum EffectType {
+  EFFECT_STATIC = 0,
+  EFFECT_BREATHING = 1,
+  // ...
+  EFFECT_MY_NEW_EFFECT = 6
+};
+```
+
+3. **Add to switch** in `executeEffect()`:
+
+```cpp
+case EFFECT_MY_NEW_EFFECT:
+  effect_myNewEffect();
   break;
 ```
 
-3. **Upload to all panels**
+4. **Upload to all panels**
 
 ## Development Workflow
 
@@ -303,9 +375,10 @@ case 5:
 
 1. **Upload to one panel first**: `just up s1`
 2. **Monitor serial output**: `just mon s1`
-3. **Send test MQTT command** via MQTT client
-4. **Verify pattern behavior**
-5. **Upload to remaining panels**: `just up s2 && just up s3 && just up s4`
+3. **Verify region configuration** is printed on boot
+4. **Send test MQTT command** via MQTT client
+5. **Verify effect behavior**
+6. **Upload to remaining panels**: `just up s2 && just up s3 && just up s4`
 
 ### Debugging Techniques
 
@@ -326,9 +399,9 @@ void espnow_send_cb(const uint8_t *mac_addr, esp_now_send_status_t status) {
 Print received commands:
 
 ```cpp
-void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
-  Serial.printf("Received from %02X:%02X:..., Panel ID: %d, Pattern: %d\n",
-    mac[0], mac[1], cmd.panelId, cmd.patternId);
+void onDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
+  Serial.printf("Received from %02X:%02X:..., Panel ID: %d, Mode: %d, Effect: %d\n",
+    mac[0], mac[1], cmd.panelId, cmd.mode, cmd.effectType);
 }
 ```
 
@@ -349,7 +422,7 @@ just mon s2
 
 ### Performance Monitoring
 
-**Pattern Update Rate**: Measure in each pattern function:
+**Effect Update Rate**: Measure in each effect function:
 
 ```cpp
 static unsigned long frameCount = 0;
@@ -408,8 +481,9 @@ if (err == ESP_OK) {
 
 - **Global variables**: `camelCase` (e.g., `currentState`, `regionPins`)
 - **Functions**: `camelCase` (e.g., `setRegionBrightness()`)
-- **Constants**: `UPPER_SNAKE_CASE` (e.g., `NUM_REGIONS`, `ESPNOW_WIFI_CHANNEL`)
-- **Structs**: `PascalCase` (e.g., `LEDCommand`)
+- **Constants**: `UPPER_SNAKE_CASE` (e.g., `MAX_REGIONS`, `ESPNOW_WIFI_CHANNEL`)
+- **Structs**: `PascalCase` (e.g., `LightCommand`, `RegionConfig`)
+- **Enums**: `PascalCase` for type, `UPPER_SNAKE_CASE` for values (e.g., `EffectType`, `EFFECT_BREATHING`)
 
 ### Serial Output
 
@@ -428,17 +502,43 @@ if (err == ESP_OK) {
 
 ### Change GPIO Pins
 
-Edit `src/panel/main.cpp`:
+Edit `include/panel_config.h` for the specific panel:
 
 ```cpp
-const uint8_t regionPins[NUM_REGIONS] = {25, 26, 27, 14, 12, 13, 15};
+#if PANEL_ID == 1
+const RegionConfig PROGMEM panel1Regions[] = {
+  {25, "BULL_SYMBOL", 0, LGROUP_BULL, XGROUP_SYMBOL},
+  {26, "BULL_HEAD", 1, LGROUP_BULL, XGROUP_NONE},
+  // ... change pin numbers as needed
+};
+#endif
 ```
 
-### Add More Regions
+### Add Region to Existing Panel
 
-1. Update `include/common.h`: `#define NUM_REGIONS 10`
-2. Add pins in `src/panel/main.cpp`: `{25, 26, 27, 14, 12, 13, 15, 32, 33, 34}`
-3. Update `LEDCommand` struct handling
+1. Edit `include/panel_config.h` for the panel
+2. Add new `RegionConfig` entry with GPIO pin, name, position, groups
+3. Update region count: `constexpr uint8_t getRegionCount() { return X; }`
+4. Ensure total regions across all panels ≤ `MAX_REGIONS` (20)
+
+### Add More Panels
+
+1. Define MAC in `include/common.h`: `uint8_t panel5_mac[] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0x05};`
+2. Add configuration block in `include/panel_config.h`:
+   ```cpp
+   #elif PANEL_ID == 5
+   const RegionConfig PROGMEM panel5Regions[] = { /* ... */ };
+   constexpr uint8_t getRegionCount() { return X; }
+   #endif
+   ```
+3. Update `MAX_REGIONS` in `include/common.h` if needed
+4. Add environment in `platformio.ini`:
+   ```ini
+   [env:panel5]
+   build_flags = ${common.build_flags} -D PANEL_ID=5
+   ```
+5. Register peer in master `setup()`: `esp_now_add_peer(&panel5);`
+6. Update `justfile` aliases
 
 ### Change PWM Frequency
 
@@ -485,8 +585,16 @@ Serial.println("Would send ESP-NOW command");
 Create fake commands in `setup()`:
 
 ```cpp
-LEDCommand testCmd = {0, 1, 255, {true, true, true, true, true, true, true}, 50, false, 0};
-memcpy(&currentState, &testCmd, sizeof(LEDCommand));
+LightCommand testCmd;
+testCmd.panelId = 0;
+testCmd.mode = 0;
+testCmd.effectType = EFFECT_BREATHING;
+testCmd.brightness = 200;
+testCmd.speed = 50;
+for (uint8_t i = 0; i < MAX_REGIONS; i++) {
+  testCmd.regions[i] = (i < getRegionCount());  // Enable all regions
+}
+memcpy(&currentState, &testCmd, sizeof(LightCommand));
 ```
 
 ### PWM Verification (Without LEDs)
@@ -500,10 +608,12 @@ Measure GPIO with multimeter:
 
 - **MQTT Latency**: 50-200ms (network dependent)
 - **ESP-NOW Latency**: <10ms (master to panel)
-- **Pattern Update Rate**: 10-100 Hz (pattern dependent)
+- **Effect Update Rate**: 10-100 Hz (effect dependent)
 - **PWM Frequency**: 5 kHz (flicker-free)
 - **WiFi Range**: ~50m indoor
 - **ESP-NOW Range**: ~200m line-of-sight
+- **Region Count**: 20 regions total (5+6+5+4 across 4 panels)
+- **Command Size**: 30 bytes (well below 250-byte ESP-NOW limit)
 
 ## Security Notes
 
@@ -521,18 +631,21 @@ Measure GPIO with multimeter:
 ## Future Development
 
 ### Planned Features
+- [ ] Sequence orchestration in master (modes 1 & 2)
 - [ ] Audio reactivity via I2S microphone
 - [ ] OTA firmware updates
-- [ ] Pattern presets stored in SPIFFS
-- [ ] Web-based pattern designer
+- [ ] Effect presets stored in SPIFFS
+- [ ] Web-based effect designer
 - [ ] DMX512 protocol support
+- [ ] Group-based region selection helpers
 
 ### Code Improvements
-- [ ] Refactor patterns into class hierarchy
-- [ ] Implement pattern interpolation
+- [ ] Implement sequence logic in master
+- [ ] Add getRegionsForGroup() and getRegionsForSequence() helpers
+- [ ] Implement effect interpolation
 - [ ] Add state machine for transitions
-- [ ] Optimize ESP-NOW packet structure
 - [ ] Implement graceful degradation
+- [ ] Add effect chaining/composition
 
 ## Related Documentation
 

@@ -80,26 +80,47 @@ Detailed specification of MQTT and ESP-NOW communication protocols.
 ```json
 {
   "panelId": 0,
-  "patternId": 2,
+  "mode": 0,
+  "sequenceId": 0,
+  "groupId": 0,
+  "regions": [0, 1, 2, 3, 4],
+  "effectType": 1,
   "brightness": 200,
-  "regions": [1, 2, 3, 4, 5, 6, 7],
   "speed": 50,
-  "audioReactive": false
+  "step": 0,
+  "audioReactive": false,
+  "audioIntensity": 0
 }
 ```
 
 **Field Specifications**:
 
-| Field           | Type    | Range      | Required | Description                              |
-| --------------- | ------- | ---------- | -------- | ---------------------------------------- |
-| `panelId`       | integer | 0-4        | Yes      | 0 = all panels, 1-4 = specific panel     |
-| `patternId`     | integer | 0-4        | Yes      | Pattern ID to execute                    |
-| `brightness`    | integer | 0-255      | No\*     | Brightness (used only in pattern 0)      |
-| `regions`       | array   | [1-7]      | Yes      | List of enabled regions                  |
-| `speed`         | integer | 0-100      | No       | Animation speed (0=slowest, 100=fastest) |
-| `audioReactive` | boolean | true/false | No       | Enable audio modulation (future)         |
+| Field             | Type    | Range   | Required | Description                                        |
+| ----------------- | ------- | ------- | -------- | -------------------------------------------------- |
+| `panelId`         | integer | 0-4     | Yes      | 0 = all panels, 1-4 = specific panel               |
+| `mode`            | integer | 0-2     | Yes      | 0=direct regions, 1=sequence, 2=group              |
+| `sequenceId`      | integer | 0-10    | No       | Sequence ID (used when mode=1)                     |
+| `groupId`         | integer | 0-10    | No       | Group ID (used when mode=2)                        |
+| `regions`         | array   | [0-19]  | Yes      | Region indices (panel-specific, 0-indexed)         |
+| `effectType`      | integer | 0-5     | Yes      | 0=static, 1=breathing, 2=wave, 3=pulse, 4=fade_in, 5=fade_out |
+| `brightness`      | integer | 0-255   | No       | Target brightness level (default: 128)             |
+| `speed`           | integer | 0-100   | No       | Animation speed (0=slowest, 100=fastest, default: 50) |
+| `step`            | integer | 0-255   | No       | Step number for multi-step sequences               |
+| `audioReactive`   | boolean | true/false | No    | Enable audio modulation (default: false)           |
+| `audioIntensity`  | integer | 0-255   | No       | Audio intensity level (default: 0)                 |
 
-\*Required for pattern 0, optional for others
+**Modes**:
+- **0 (MODE_DIRECT_REGIONS)**: Direct region control via `regions` array
+- **1 (MODE_SEQUENCE)**: Orchestrated sequence (master calculates regions)
+- **2 (MODE_GROUP)**: Group-based selection (master calculates regions)
+
+**Effect Types**:
+- **0 (EFFECT_STATIC)**: Solid brightness
+- **1 (EFFECT_BREATHING)**: Sine wave fade in/out
+- **2 (EFFECT_WAVE)**: Chase effect across regions
+- **3 (EFFECT_PULSE)**: Quick on/off pulses
+- **4 (EFFECT_FADE_IN)**: Gradual fade in
+- **5 (EFFECT_FADE_OUT)**: Gradual fade out
 
 ### Example Commands
 
@@ -118,9 +139,10 @@ Published to `ta25stage/master/status` every 30 seconds:
   "free_heap": 245000,
   "last_command": {
     "panelId": 0,
-    "patternId": 2,
+    "mode": 0,
+    "effectType": 1,
     "brightness": 200,
-    "speed": 75
+    "speed": 50
   }
 }
 ```
@@ -131,36 +153,82 @@ Published to `ta25stage/master/status` every 30 seconds:
 - `mqtt_fails` - Consecutive MQTT connection failures
 - `last_command` - Most recent command sent to panels
 
-#### All Panels, Static Pattern
+#### All Panels, Static Effect on All Regions
 
 ```json
 {
   "panelId": 0,
-  "patternId": 0,
+  "mode": 0,
+  "regions": [0, 1, 2, 3, 4, 5],
+  "effectType": 0,
   "brightness": 255,
-  "regions": [1, 2, 3, 4, 5, 6, 7]
-}
-```
-
-#### Panel 2, Breathing Effect, Medium Speed
-
-```json
-{
-  "panelId": 2,
-  "patternId": 1,
-  "regions": [1, 3, 5, 7],
   "speed": 50
 }
 ```
 
-#### Panel 1, Wave Effect, Fast, Selective Regions
+#### Panel 2, Breathing Effect on Specific Regions
+
+```json
+{
+  "panelId": 2,
+  "mode": 0,
+  "regions": [0, 2, 4],
+  "effectType": 1,
+  "brightness": 200,
+  "speed": 50
+}
+```
+
+#### Panel 1, Wave Effect Fast on Selected Regions
 
 ```json
 {
   "panelId": 1,
-  "patternId": 2,
-  "regions": [2, 4, 6],
+  "mode": 0,
+  "regions": [1, 2, 3],
+  "effectType": 2,
+  "brightness": 180,
   "speed": 80
+}
+```
+
+#### Panel 3, Fade In Effect
+
+```json
+{
+  "panelId": 3,
+  "mode": 0,
+  "regions": [0, 1, 2, 3, 4],
+  "effectType": 4,
+  "brightness": 255,
+  "speed": 30
+}
+```
+
+#### All Panels, Sequence Mode (Future)
+
+```json
+{
+  "panelId": 0,
+  "mode": 1,
+  "sequenceId": 1,
+  "effectType": 1,
+  "brightness": 200,
+  "speed": 60,
+  "step": 0
+}
+```
+
+#### Group-Based Control (Future)
+
+```json
+{
+  "panelId": 0,
+  "mode": 2,
+  "groupId": 1,
+  "effectType": 3,
+  "brightness": 255,
+  "speed": 70
 }
 ```
 
@@ -194,19 +262,35 @@ Published to `ta25stage/master/status` every 30 seconds:
 
 ```cpp
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<1024> doc;
   deserializeJson(doc, payload, length);
 
-  LEDCommand ledCmd;
-  ledCmd.panelId = doc["panelId"] | 0;
-  ledCmd.patternId = doc["patternId"] | 0;
-  ledCmd.brightness = doc["brightness"] | 128;
-  // ... parse regions array
-  ledCmd.speed = doc["speed"] | 50;
-  ledCmd.audioReactive = doc["audioReactive"] | false;
+  LightCommand lightCmd;
+  lightCmd.panelId = doc["panelId"] | 0;
+  lightCmd.mode = doc["mode"] | 0;
+  lightCmd.sequenceId = doc["sequenceId"] | 0;
+  lightCmd.groupId = doc["groupId"] | 0;
+  lightCmd.effectType = doc["effectType"] | 0;
+  lightCmd.brightness = doc["brightness"] | 128;
+  lightCmd.speed = doc["speed"] | 50;
+  lightCmd.step = doc["step"] | 0;
+  lightCmd.audioReactive = doc["audioReactive"] | false;
+  lightCmd.audioIntensity = doc["audioIntensity"] | 0;
+  
+  // Parse regions array (0-indexed)
+  JsonArray regions = doc["regions"];
+  for (uint8_t i = 0; i < MAX_REGIONS; i++) {
+    lightCmd.regions[i] = false;
+  }
+  for (JsonVariant v : regions) {
+    uint8_t region = v.as<uint8_t>();
+    if (region < MAX_REGIONS) {
+      lightCmd.regions[region] = true;
+    }
+  }
 
   // Send via ESP-NOW
-  esp_now_send(broadcastAddress, (uint8_t*)&ledCmd, sizeof(ledCmd));
+  sendESPNowCommand(&lightCmd);
 }
 ```
 
@@ -262,32 +346,40 @@ Must be called **before** `WiFi.mode()`.
 
 ### Message Structure
 
-**C Struct** (`LEDCommand`):
+**C Struct** (`LightCommand`):
 
 ```cpp
 typedef struct {
-  uint8_t panelId;              // 1 byte
-  uint8_t patternId;            // 1 byte
-  uint8_t brightness;           // 1 byte
-  bool regions[NUM_REGIONS];    // 7 bytes (NUM_REGIONS = 7)
-  uint8_t speed;                // 1 byte
+  uint8_t panelId;              // 1 byte - 0=all, 1-4=specific panel
+  uint8_t mode;                 // 1 byte - 0=direct, 1=sequence, 2=group
+  uint8_t sequenceId;           // 1 byte - sequence identifier
+  uint8_t groupId;              // 1 byte - group identifier
+  uint8_t effectType;           // 1 byte - 0-5 (static to fade_out)
+  uint8_t brightness;           // 1 byte - 0-255
+  bool regions[MAX_REGIONS];    // 20 bytes (MAX_REGIONS = 20)
+  uint8_t speed;                // 1 byte - 0-100
+  uint8_t step;                 // 1 byte - multi-step sequence number
   bool audioReactive;           // 1 byte
-  uint8_t audioIntensity;       // 1 byte
-} LEDCommand;                   // Total: 13 bytes
+  uint8_t audioIntensity;       // 1 byte - 0-255
+} LightCommand;                 // Total: 30 bytes
 ```
 
 **Memory Layout**:
 
 ```
 Offset  | Field          | Size
---------|----------------|-----
+--------|----------------|-------
 0       | panelId        | 1 byte
-1       | patternId      | 1 byte
-2       | brightness     | 1 byte
-3-9     | regions[0-6]   | 7 bytes
-10      | speed          | 1 byte
-11      | audioReactive  | 1 byte
-12      | audioIntensity | 1 byte
+1       | mode           | 1 byte
+2       | sequenceId     | 1 byte
+3       | groupId        | 1 byte
+4       | effectType     | 1 byte
+5       | brightness     | 1 byte
+6-25    | regions[0-19]  | 20 bytes
+26      | speed          | 1 byte
+27      | step           | 1 byte
+28      | audioReactive  | 1 byte
+29      | audioIntensity | 1 byte
 ```
 
 **Advantages**:
@@ -295,6 +387,8 @@ Offset  | Field          | Size
 - Fixed size (no dynamic allocation)
 - Binary encoding (efficient)
 - Direct memory copy (fast)
+- Well below ESP-NOW 250-byte limit
+- Supports up to 20 regions across 4 panels
 
 ### WiFi Channel Requirements
 
@@ -385,17 +479,21 @@ Register: `esp_now_register_send_cb(espnow_send_cb);`
 
 ```cpp
 void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
-  if (len == sizeof(LEDCommand)) {
-    LEDCommand cmd;
-    memcpy(&cmd, incomingData, sizeof(LEDCommand));
+  if (len == sizeof(LightCommand)) {
+    LightCommand cmd;
+    memcpy(&cmd, incomingData, sizeof(LightCommand));
 
     // Check if command is for this panel
     if (cmd.panelId == 0 || cmd.panelId == PANEL_ID) {
-      memcpy(&currentState, &cmd, sizeof(LEDCommand));
-      Serial.printf("Command accepted - Pattern: %d\n", cmd.patternId);
+      memcpy(&currentState, &cmd, sizeof(LightCommand));
+      lastCommandTime = millis();
+      Serial.printf("✓ Command accepted - Mode: %d, Effect: %d, Brightness: %d\n", 
+                    cmd.mode, cmd.effectType, cmd.brightness);
     } else {
-      Serial.println("Command ignored (wrong panel ID)");
+      Serial.printf("Command ignored (panelId %d != %d)\n", cmd.panelId, PANEL_ID);
     }
+  } else {
+    Serial.printf("⚠ Invalid packet size: %d (expected %d)\n", len, sizeof(LightCommand));
   }
 }
 ```
@@ -506,25 +604,32 @@ Register: `esp_now_register_recv_cb(OnDataRecv);`
 
 ```bash
 # Subscribe to all topics
-mosquitto_sub -h broker.emqx.io -t "ta25stage/#" -v
+mosquitto_sub -h test.mosquitto.org -t "ta25stage/#" -v
 
-# Publish test command (all panels)
-mosquitto_pub -h broker.emqx.io -t "ta25stage/command" -m '{"panelId":0,"patternId":2,"brightness":255,"regions":[1,2,3,4,5,6,7],"speed":50}'
+# Publish test command (all panels, breathing effect)
+mosquitto_pub -h test.mosquitto.org -t "ta25stage/command" \
+  -m '{"panelId":0,"mode":0,"regions":[0,1,2,3,4],"effectType":1,"brightness":200,"speed":50}'
 
-# Publish to specific panel
-mosquitto_pub -h broker.emqx.io -t "ta25stage/command" -m '{"panelId":2,"patternId":1,"regions":[1,3,5],"speed":80}'
+# Publish to Panel 2 (wave effect on specific regions)
+mosquitto_pub -h test.mosquitto.org -t "ta25stage/command" \
+  -m '{"panelId":2,"mode":0,"regions":[0,2,4],"effectType":2,"brightness":180,"speed":70}'
+
+# Panel 1 fade in
+mosquitto_pub -h test.mosquitto.org -t "ta25stage/command" \
+  -m '{"panelId":1,"mode":0,"regions":[0,1,2,3,4],"effectType":4,"brightness":255,"speed":30}'
 
 # Monitor master status
-mosquitto_sub -h broker.emqx.io -t "ta25stage/master/status" -v
+mosquitto_sub -h test.mosquitto.org -t "ta25stage/master/status" -v
 ```
 
 **Monitor Master Serial**:
 
 ```
-MQTT connected
-Received message on topic: stage/command
-Parsed command: Panel=0, Pattern=0, Brightness=255
-Sending via ESP-NOW...
+✓ MQTT connected
+📨 Received MQTT message on ta25stage/command
+Parsed: Panel=0, Mode=0, Effect=1, Brightness=200
+Active regions: 0 1 2 3 4 
+ESP-NOW command sent: Mode=0, Effect=1, Panel=0
 ```
 
 ### ESP-NOW Debugging
@@ -535,13 +640,15 @@ Sending via ESP-NOW...
 Sending to Panel 1 (AA:AA:AA:AA:AA:01)... Success
 Sending to Panel 2 (AA:AA:AA:AA:AA:02)... Success
 Sending to Panel 3 (AA:AA:AA:AA:AA:03)... Fail
+ESP-NOW command sent: Mode=0, Effect=1, Panel=0
 ```
 
 **Panel Serial Output**:
 
 ```
-Received from: DE:AD:BE:EF:00:01 (master MAC)
-Command accepted - Pattern: 2 Brightness: 200
+Received command from: DE:AD:BE:EF:00:01 (14 bytes)
+✓ Command accepted - Mode: 0, Effect: 1, Brightness: 200
+Executing effect_breathing (5 active regions)
 ```
 
 **Common Issues**:

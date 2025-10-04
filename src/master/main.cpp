@@ -22,7 +22,7 @@ const char *status_topic = "ta25stage/master/status";
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-LEDCommand currentCommand;
+LightCommand currentCommand;
 
 // Connection management
 uint8_t mqtt_fail_count = 0;
@@ -88,7 +88,8 @@ void publishHeartbeat() {
   doc["mqtt_fails"] = mqtt_fail_count;
   doc["free_heap"] = ESP.getFreeHeap();
   doc["last_command"]["panelId"] = currentCommand.panelId;
-  doc["last_command"]["patternId"] = currentCommand.patternId;
+  doc["last_command"]["mode"] = currentCommand.mode;
+  doc["last_command"]["effectType"] = currentCommand.effectType;
   doc["last_command"]["brightness"] = currentCommand.brightness;
   doc["last_command"]["speed"] = currentCommand.speed;
 
@@ -216,17 +217,15 @@ void setup_espnow() {
   Serial.println("ESP-NOW initialized");
 }
 
-void sendESPNowCommand(LEDCommand &cmd) {
-  // If panelId is 0, broadcast to all panels
+void sendESPNowCommand(LightCommand &cmd) {
   if (cmd.panelId == 0) {
-    esp_err_t result = esp_now_send(0, (uint8_t *)&cmd, sizeof(LEDCommand));
+    esp_err_t result = esp_now_send(0, (uint8_t *)&cmd, sizeof(LightCommand));
     if (result == ESP_OK) {
       Serial.println("Broadcast sent successfully");
     } else {
       Serial.println("Error broadcasting");
     }
   } else {
-    // Send to specific panel
     uint8_t *target_mac = nullptr;
     switch (cmd.panelId) {
     case 1:
@@ -247,7 +246,7 @@ void sendESPNowCommand(LEDCommand &cmd) {
     }
 
     esp_err_t result =
-        esp_now_send(target_mac, (uint8_t *)&cmd, sizeof(LEDCommand));
+        esp_now_send(target_mac, (uint8_t *)&cmd, sizeof(LightCommand));
     if (result == ESP_OK) {
       Serial.print("Sent to Panel ");
       Serial.println(cmd.panelId);
@@ -261,7 +260,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   Serial.print("MQTT message on topic: ");
   Serial.println(topic);
 
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<1024> doc;
   DeserializationError error = deserializeJson(doc, payload, length);
 
   if (error) {
@@ -270,49 +269,35 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
     return;
   }
 
-  // Initialize command
-  LEDCommand cmd;
+  LightCommand cmd;
+  
+  for (int i = 0; i < MAX_REGIONS; i++) {
+    cmd.regions[i] = false;
+  }
 
-  // Parse panelId (0 = all panels)
   cmd.panelId = doc["panelId"] | 0;
+  cmd.mode = doc["mode"] | MODE_DIRECT_REGIONS;
+  cmd.sequenceId = doc["sequenceId"] | 0;
+  cmd.groupId = doc["groupId"] | 0;
+  cmd.effectType = doc["effectType"] | EFFECT_STATIC;
+  cmd.brightness = doc["brightness"] | 128;
+  cmd.speed = doc["speed"] | 50;
+  cmd.step = doc["step"] | 0;
+  cmd.audioReactive = doc["audioReactive"] | false;
+  cmd.audioIntensity = doc["audioIntensity"] | 0;
 
-  // Parse patternId
-  if (doc.containsKey("patternId")) {
-    cmd.patternId = doc["patternId"];
-  }
-
-  // Parse brightness
-  if (doc.containsKey("brightness")) {
-    cmd.brightness = doc["brightness"];
-  }
-
-  // Parse regions
   if (doc.containsKey("regions")) {
-    // Reset all regions
-    for (int i = 0; i < NUM_REGIONS; i++) {
-      cmd.regions[i] = false;
-    }
     JsonArray regions = doc["regions"].as<JsonArray>();
     for (int region : regions) {
-      if (region > 0 && region <= NUM_REGIONS) {
-        cmd.regions[region - 1] = true;
+      if (region >= 0 && region < MAX_REGIONS) {
+        cmd.regions[region] = true;
       }
     }
   } else {
-    // Default: all regions enabled
-    for (int i = 0; i < NUM_REGIONS; i++) {
+    for (int i = 0; i < MAX_REGIONS; i++) {
       cmd.regions[i] = true;
     }
   }
-
-  // Parse speed
-  cmd.speed = doc["speed"] | 50;
-
-  // Parse audioReactive
-  cmd.audioReactive = doc["audioReactive"] | false;
-
-  // Audio intensity (from separate audio topic)
-  cmd.audioIntensity = doc["intensity"] | 0;
 
   currentCommand = cmd;
   sendESPNowCommand(cmd);
