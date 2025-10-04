@@ -1,6 +1,5 @@
 // master main.cpp
-#include "common.h"
-#include "region_groups.h"
+#include "config.h"
 #include <ArduinoJson.h>
 #include <PubSubClient.h>
 #include <WiFi.h>
@@ -8,10 +7,10 @@
 #include <esp_wifi.h>
 
 // WiFi Credentials
-// const char *ssid = "arcane";
-// const char *password = "hisashiburi";
-const char *ssid = "ynotiphone";
-const char *password = "12121212";
+const char *ssid = "arcane";
+const char *password = "hisashiburi";
+// const char *ssid = "ynotiphone";
+// const char *password = "12121212";
 // const char *ssid = "Navam";
 // const char *password = "kskm2626";
 
@@ -463,22 +462,35 @@ void runSequence2() {
   setAllRegions(false, cmd);
 
   Serial.println("Step 1: Light SYMBOL group");
-  setRegionsByList(SYMBOL_REGIONS, SYMBOL_COUNT, true, cmd);
+  uint8_t symbolBuf[MAX_REGIONS];
+  uint8_t symbolCount;
+  RegionGroups::getByGroup(GROUP_SYMBOL, symbolBuf, symbolCount);
+  setRegionsByList(symbolBuf, symbolCount, true, cmd);
   sendESPNowCommand(cmd);
   delay(4000);
 
   Serial.println("Step 2: Add RAAVANA_HEAD group");
-  setRegionsByList(RAAVANA_HEAD_REGIONS, RAAVANA_HEAD_COUNT, true, cmd);
+  uint8_t raavanaHeadBuf[MAX_REGIONS];
+  uint8_t raavanaHeadCount;
+  RegionGroups::getByGroup(GROUP_RAAVANA_HEAD, raavanaHeadBuf,
+                           raavanaHeadCount);
+  setRegionsByList(raavanaHeadBuf, raavanaHeadCount, true, cmd);
   sendESPNowCommand(cmd);
   delay(4000);
 
   Serial.println("Step 3: Expand to full RAAVANA group");
-  setRegionsByList(RAAVANA_REGIONS, RAAVANA_COUNT, true, cmd);
+  uint8_t raavanaBuf[MAX_REGIONS];
+  uint8_t raavanaCount;
+  RegionGroups::getByGroup(GROUP_RAAVANA, raavanaBuf, raavanaCount);
+  setRegionsByList(raavanaBuf, raavanaCount, true, cmd);
   sendESPNowCommand(cmd);
   delay(5000);
 
   Serial.println("Step 4: Light CONTINENT group");
-  setRegionsByList(CONTINENT_REGIONS, CONTINENT_COUNT, true, cmd);
+  uint8_t continentBuf[MAX_REGIONS];
+  uint8_t continentCount;
+  RegionGroups::getByGroup(GROUP_CONTINENT, continentBuf, continentCount);
+  setRegionsByList(continentBuf, continentCount, true, cmd);
   sendESPNowCommand(cmd);
   delay(5000);
 
@@ -507,7 +519,10 @@ void runSequence3() {
   setAllRegions(false, cmd);
 
   Serial.println("Step 1: Light SYMBOL regions");
-  setRegionsByList(SYMBOL_REGIONS, SYMBOL_COUNT, true, cmd);
+  uint8_t symbolBuf[MAX_REGIONS];
+  uint8_t symbolCount;
+  RegionGroups::getByGroup(GROUP_SYMBOL, symbolBuf, symbolCount);
+  setRegionsByList(symbolBuf, symbolCount, true, cmd);
   sendESPNowCommand(cmd);
   delay(3000);
 
