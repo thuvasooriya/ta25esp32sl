@@ -4,49 +4,49 @@ Each panel has distinct regions with named identifiers and GPIO pin assignments.
 
 ## Panel 1 (5 Regions)
 
-| Region | GPIO Pin | Name             | Local Group | Cross-Panel Group |
-|--------|----------|------------------|-------------|-------------------|
-| 0      | 25       | BULL_SYMBOL      | BULL        | SYMBOL            |
-| 1      | 26       | BULL_HEAD        | BULL        | -                 |
-| 2      | 27       | BHARATHI_EYES    | BHARATHI    | -                 |
-| 3      | 14       | BHARATHI_SYMBOL  | BHARATHI    | SYMBOL            |
-| 4      | 12       | BHARATHI_CLOTH   | BHARATHI    | -                 |
+| Region | GPIO Pin | Name            | Local Group | Cross-Panel Group |
+| ------ | -------- | --------------- | ----------- | ----------------- |
+| 0      | 25       | BULL_SYMBOL     | BULL        | SYMBOL            |
+| 1      | 26       | BULL_HEAD       | BULL        | -                 |
+| 2      | 27       | BHARATHI_EYES   | BHARATHI    | -                 |
+| 3      | 14       | BHARATHI_SYMBOL | BHARATHI    | SYMBOL            |
+| 4      | 12       | BHARATHI_CLOTH  | BHARATHI    | -                 |
 
 **Local Groups**: BULL, BHARATHI
 
 ## Panel 2 (6 Regions)
 
-| Region | GPIO Pin | Name             | Local Group | Cross-Panel Group |
-|--------|----------|------------------|-------------|-------------------|
-| 0      | 25       | CONTINENT_F      | -           | CONTINENT         |
-| 1      | 26       | VEENA_SYMBOL     | VEENA       | SYMBOL            |
-| 2      | 27       | VEENA_REST       | VEENA       | -                 |
-| 3      | 14       | DANCER_SYMBOL    | DANCER      | SYMBOL            |
-| 4      | 12       | DANCER_TOP       | DANCER      | -                 |
-| 5      | 13       | DANCER_BOTTOM    | DANCER      | -                 |
+| Region | GPIO Pin | Name          | Local Group | Cross-Panel Group |
+| ------ | -------- | ------------- | ----------- | ----------------- |
+| 0      | 25       | CONTINENT_F   | -           | CONTINENT         |
+| 1      | 26       | VEENA_SYMBOL  | VEENA       | SYMBOL            |
+| 2      | 27       | VEENA_REST    | VEENA       | -                 |
+| 3      | 14       | DANCER_SYMBOL | DANCER      | SYMBOL            |
+| 4      | 12       | DANCER_TOP    | DANCER      | -                 |
+| 5      | 13       | DANCER_BOTTOM | DANCER      | -                 |
 
 **Local Groups**: VEENA, DANCER
 
 ## Panel 3 (5 Regions)
 
-| Region | GPIO Pin | Name             | Local Group | Cross-Panel Group |
-|--------|----------|------------------|-------------|-------------------|
-| 0      | 25       | CONTINENT_U      | -           | CONTINENT         |
-| 1      | 26       | RAAVANA_HEAD_P3  | RAAVANA     | RAAVANA_HEAD      |
-| 2      | 27       | VALLUVAR_SYMBOL  | VALLUVAR    | SYMBOL            |
-| 3      | 14       | VALLUVAR_REST    | VALLUVAR    | -                 |
-| 4      | 12       | CONTINENT_C      | -           | CONTINENT         |
+| Region | GPIO Pin | Name            | Local Group | Cross-Panel Group     |
+| ------ | -------- | --------------- | ----------- | --------------------- |
+| 0      | 25       | CONTINENT_U     | -           | CONTINENT             |
+| 1      | 26       | RAAVANA_HEAD_P3 | RAAVANA     | RAAVANA_HEAD, RAAVANA |
+| 2      | 27       | VALLUVAR_SYMBOL | VALLUVAR    | SYMBOL                |
+| 3      | 14       | VALLUVAR_REST   | VALLUVAR    | -                     |
+| 4      | 12       | CONTINENT_C     | -           | CONTINENT             |
 
-**Local Groups**: VALLUVAR, RAAVANA (local)
+**Local Groups**: VALLUVAR
 
 ## Panel 4 (4 Regions)
 
-| Region | GPIO Pin | Name                | Local Group | Cross-Panel Group |
-|--------|----------|---------------------|-------------|-------------------|
-| 0      | 25       | RAAVANA_HEAD_SYMBOL | RAAVANA     | RAAVANA_HEAD      |
-| 1      | 26       | RAAVANA_HEAD_REST   | RAAVANA     | RAAVANA_HEAD      |
-| 2      | 27       | RAAVANA_CORE        | RAAVANA     | RAAVANA           |
-| 3      | 14       | RAAVANA_TORSO       | RAAVANA     | RAAVANA           |
+| Region | GPIO Pin | Name                | Local Group | Cross-Panel Group     |
+| ------ | -------- | ------------------- | ----------- | --------------------- |
+| 0      | 25       | RAAVANA_HEAD_SYMBOL | RAAVANA     | RAAVANA_HEAD, RAAVANA |
+| 1      | 26       | RAAVANA_HEAD_REST   | RAAVANA     | RAAVANA_HEAD, RAAVANA |
+| 2      | 27       | RAAVANA_CORE        | RAAVANA     | RAAVANA               |
+| 3      | 14       | RAAVANA_TORSO       | RAAVANA     | RAAVANA               |
 
 **Local Groups**: RAAVANA (local)
 
@@ -62,11 +62,13 @@ Groups that span multiple panels for coordinated effects:
 ## GPIO Pin Notes
 
 **Current Configuration:**
+
 - All panels use GPIO pins: 25, 26, 27, 14, 12
 - Panel 2 additionally uses GPIO 13
 - These are placeholder assignments for development
 
 **Production Deployment:**
+
 - Verify GPIO pins match actual hardware connections
 - Update `include/panel_config.h` with correct pin assignments
 - Avoid pins with special boot behavior (GPIO 0, 2, 15)
@@ -81,6 +83,7 @@ Sequences are master-side choreographed narratives. The master calculates which 
 **Purpose**: Hardware validation and brightness calibration
 
 **Steps**:
+
 1. Light all 20 regions at full brightness for 2 seconds
 2. Run wave effect across all panels
 3. Run pulse effect with varying speeds
@@ -88,13 +91,14 @@ Sequences are master-side choreographed narratives. The master calculates which 
 
 **Trigger**: Automatically runs on master boot after initialization
 
-**Status**: Not yet implemented
+**Status**: ✅ Implemented
 
 ### Sequence 1: Vertical Sweep
 
 **Purpose**: Top-to-bottom cascading illumination
 
 **Flow**:
+
 1. Start with topmost region of Panel 1 (region 0)
 2. Progress downward through Panel 1 regions (0→4)
 3. Continue to Panel 2 top (region 0) through bottom (5)
@@ -103,13 +107,14 @@ Sequences are master-side choreographed narratives. The master calculates which 
 6. Reverse: fade out bottom-to-top
 7. Optional: Repeat with different effects
 
-**Status**: Not yet implemented
+**Status**: ✅ Implemented
 
 ### Sequence 2: Group Narrative
 
 **Purpose**: Symbolic storytelling through grouped illumination
 
 **Choreography**:
+
 1. Light SYMBOL group (5 regions across all panels)
 2. Light RAAVANA_HEAD group (Panels 3, 4)
 3. Expand to full RAAVANA group (adds core and torso)
@@ -117,13 +122,14 @@ Sequences are master-side choreographed narratives. The master calculates which 
 
 **Timing**: Each group holds for 3-5 seconds before next
 
-**Status**: Not yet implemented
+**Status**: ✅ Implemented
 
 ### Sequence 3: Symbol Emergence
 
 **Purpose**: Evoke emergence of meaning from symbols
 
 **Flow**:
+
 1. Begin with all regions dark
 2. Fade in SYMBOL regions simultaneously (0.5s fade)
 3. Hold symbols at full brightness for 3 seconds
@@ -133,7 +139,7 @@ Sequences are master-side choreographed narratives. The master calculates which 
 
 **Symbolism**: Represents concepts manifesting before physical forms
 
-**Status**: Not yet implemented
+**Status**: ✅ Implemented
 
 ## Implementation Notes
 
@@ -142,3 +148,37 @@ Sequences are master-side choreographed narratives. The master calculates which 
 - Panels execute effects (breathing, fade, etc.) on specified regions
 - Sequence logic resides in master firmware (`src/master/main.cpp`)
 - See `AGENTS.md` for implementation guidelines
+
+## Triggering Sequences
+
+### Via MQTT
+
+Publish to `ta25stage/command`:
+
+**Sequence 0 (Test Sequence)**:
+
+```json
+{ "mode": 1, "sequenceId": 0 }
+```
+
+**Sequence 1 (Vertical Sweep)**:
+
+```json
+{ "mode": 1, "sequenceId": 1 }
+```
+
+**Sequence 2 (Group Narrative)**:
+
+```json
+{ "mode": 1, "sequenceId": 2 }
+```
+
+**Sequence 3 (Symbol Emergence)**:
+
+```json
+{ "mode": 1, "sequenceId": 3 }
+```
+
+### Auto-Boot Behavior
+
+Sequence 0 runs automatically 3 seconds after master initialization to validate all hardware connections.

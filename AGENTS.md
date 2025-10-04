@@ -628,24 +628,101 @@ Measure GPIO with multimeter:
 - MQTT authentication (username/password)
 - VPN for remote access
 
+## Sequence Implementation
+
+### Overview
+
+Sequences are master-orchestrated choreographed narratives that coordinate multiple regions across panels. The master calculates which regions to light at each step and broadcasts commands to panels via ESP-NOW.
+
+**Implementation location**: `src/master/main.cpp`
+
+### Sequence Functions
+
+All four sequences are implemented:
+
+- **`runSequence0()`** - Test sequence (auto-runs on boot)
+- **`runSequence1()`** - Vertical sweep (top-to-bottom cascade)
+- **`runSequence2()`** - Group narrative (symbolic storytelling)
+- **`runSequence3()`** - Symbol emergence (meaning from symbols)
+
+### Helper Functions
+
+```cpp
+void setAllRegions(bool state, LightCommand &cmd);
+void setRegionsByList(const uint8_t* regionList, uint8_t count, bool state, LightCommand &cmd);
+```
+
+### Region Group Mappings
+
+Defined at top of `src/master/main.cpp`:
+
+```cpp
+const uint8_t SYMBOL_REGIONS[] = {0, 3, 6, 11, 15};
+const uint8_t RAAVANA_HEAD_REGIONS[] = {11, 15, 16};
+const uint8_t RAAVANA_REGIONS[] = {11, 15, 16, 17, 18};
+const uint8_t CONTINENT_REGIONS[] = {5, 10, 14};
+```
+
+### Triggering Sequences
+
+**Via MQTT**: Publish to `ta25stage/command` with `mode=1`:
+
+```json
+{"mode": 1, "sequenceId": 0}
+```
+
+**In Code**: Call sequence function directly (blocking):
+
+```cpp
+runSequence1();
+```
+
+### Sequence Behavior
+
+- **Blocking**: Sequences run to completion (cannot be interrupted)
+- **Auto-boot**: Sequence 0 runs automatically 3 seconds after master setup
+- **Serial output**: Each sequence logs step-by-step progress
+- **Status tracking**: `sequenceRunning` flag prevents overlaps
+
+### Adding New Sequences
+
+1. Define sequence function:
+```cpp
+void runSequence4() {
+  Serial.println("\n=== Running Sequence 4: My New Sequence ===");
+  sequenceRunning = true;
+  
+  LightCommand cmd;
+  cmd.mode = MODE_SEQUENCE;
+  cmd.sequenceId = 4;
+  
+  // Your sequence logic here
+  
+  sequenceRunning = false;
+}
+```
+
+2. Add forward declaration at top of file
+3. Add case to `mqttCallback()` switch statement
+4. Document in `docs/panels.md`
+
 ## Future Development
 
 ### Planned Features
-- [ ] Sequence orchestration in master (modes 1 & 2)
+- [ ] Non-blocking sequence execution with MQTT interrupts
+- [ ] Group-based mode (mode=2) implementation
 - [ ] Audio reactivity via I2S microphone
 - [ ] OTA firmware updates
 - [ ] Effect presets stored in SPIFFS
 - [ ] Web-based effect designer
 - [ ] DMX512 protocol support
-- [ ] Group-based region selection helpers
 
 ### Code Improvements
-- [ ] Implement sequence logic in master
-- [ ] Add getRegionsForGroup() and getRegionsForSequence() helpers
 - [ ] Implement effect interpolation
 - [ ] Add state machine for transitions
 - [ ] Implement graceful degradation
 - [ ] Add effect chaining/composition
+- [ ] Add sequence pause/resume functionality
 
 ## Related Documentation
 

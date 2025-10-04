@@ -20,6 +20,7 @@ void initPWMChannels() {
 #define PWM_RESOLUTION 8
 
 LightCommand currentState;
+uint8_t lastEffectType = EFFECT_STATIC;
 
 unsigned long lastCommandReceived = 0;
 unsigned long lastEffectUpdate = 0;
@@ -31,6 +32,12 @@ const unsigned long HEARTBEAT_INTERVAL = 60000;
 void setRegionBrightness(uint8_t region, uint8_t brightness) {
   if (region < NUM_REGIONS) {
     ledcWrite(pwmChannels[region], brightness);
+  }
+}
+
+void resetEffectStates() {
+  for (int r = 0; r < NUM_REGIONS; r++) {
+    setRegionBrightness(r, 0);
   }
 }
 
@@ -309,6 +316,12 @@ void onDataRecv(const uint8_t *mac_addr, const uint8_t *data, int data_len) {
       Serial.print(" Brightness: ");
       Serial.println(receivedCmd.brightness);
 
+      if (receivedCmd.effectType != lastEffectType) {
+        Serial.println("Effect type changed, resetting effect states");
+        resetEffectStates();
+        lastEffectType = receivedCmd.effectType;
+      }
+
       currentState = receivedCmd;
       lastCommandReceived = millis();
     } else {
@@ -391,6 +404,7 @@ void setup() {
   currentState.speed = 50;
   currentState.audioReactive = false;
   currentState.audioIntensity = 0;
+  lastEffectType = EFFECT_STATIC;
 
   for (int i = 0; i < MAX_REGIONS; i++) {
     currentState.regions[i] = (i < NUM_REGIONS);

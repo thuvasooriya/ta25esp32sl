@@ -2,8 +2,7 @@
 #define PANEL_CONFIG_H
 
 #include <Arduino.h>
-
-#define MAX_REGIONS 20
+#include "common.h"
 
 enum LocalGroup {
   LGROUP_BULL,
